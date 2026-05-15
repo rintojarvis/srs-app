@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f2937">
+  <title>SRS暗記アプリ</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="app-title">SRS暗記アプリ</h1>
+    <div class="stats" id="stats">
+      <span>残り <strong id="stat-remaining">0</strong></span>
+      <span>完了 <strong id="stat-done">0</strong></span>
+      <span>総数 <strong id="stat-total">0</strong></span>
+    </div>
+  </header>
+
+  <main class="main" id="main">
+    <section id="card-area" class="card-area" aria-live="polite">
+      <div class="card-meta" id="card-meta"></div>
+      <div class="card-front" id="card-front">読み込み中…</div>
+      <div class="card-back hidden" id="card-back"></div>
+      <div class="show-area" id="show-area">
+        <button class="btn-big btn-primary" id="btn-show">答えを表示</button>
+      </div>
+      <div class="grade-area hidden" id="grade-area">
+        <h3 class="section-title">習熟度</h3>
+        <div class="grade-row">
+          <button class="btn-grade btn-again" data-rating="1">Again<br><span class="hint">わからない</span></button>
+          <button class="btn-grade btn-hard"  data-rating="2">Hard<br><span class="hint">難しい</span></button>
+          <button class="btn-grade btn-good"  data-rating="3">Good<br><span class="hint">普通</span></button>
+          <button class="btn-grade btn-easy"  data-rating="4">Easy<br><span class="hint">簡単</span></button>
+        </div>
+        <h3 class="section-title">カードへの評価（AIへのフィードバック）</h3>
+        <div class="review-grid">
+          <button class="btn-review" data-review="このまま">このまま</button>
+          <button class="btn-review" data-review="不要・削除">不要・削除</button>
+          <button class="btn-review" data-review="もっと深掘り">もっと深掘り</button>
+          <button class="btn-review" data-review="分割すべき">分割すべき</button>
+          <button class="btn-review" data-review="表現を直して">表現を直して</button>
+          <button class="btn-review" data-review="論点ズレてる">論点ズレてる</button>
+        </div>
+        <input type="text" id="comment" class="comment-input" placeholder="AIへのコメント（任意）">
+        <p class="caption" id="selection-caption">習熟度ボタンを押すと記録され次のカードへ進みます。</p>
+      </div>
+    </section>
+
+    <section id="done-area" class="done-area hidden">
+      <h2>今日のキュー完了 🎉</h2>
+      <p id="done-message">お疲れさまでした。次回出題予定のカードは下記の通りです。</p>
+      <ul id="upcoming" class="upcoming"></ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <button class="btn-foot" id="btn-export">エクスポート</button>
+    <label class="btn-foot file-label">
+      インポート
+      <input type="file" id="file-import" accept="application/json" hidden>
+    </label>
+    <button class="btn-foot btn-danger" id="btn-reset">リセット</button>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
