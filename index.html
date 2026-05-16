@@ -8,6 +8,45 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
+  <dialog id="checkin-modal" class="checkin-modal">
+    <form method="dialog">
+      <h2>今日の学習内容</h2>
+      <p class="caption">今日授業を受けた科目・読んだ教材を教えてください。優先キューに反映します。</p>
+
+      <fieldset class="checkin-subjects">
+        <legend>科目（複数選択可）</legend>
+        <label><input type="checkbox" value="憲法"> 憲法</label>
+        <label><input type="checkbox" value="民法"> 民法</label>
+        <label><input type="checkbox" value="民訴"> 民事訴訟法</label>
+        <label><input type="checkbox" value="刑法"> 刑法</label>
+        <label><input type="checkbox" value="刑訴"> 刑事訴訟法</label>
+        <label><input type="checkbox" value="行政法"> 行政法</label>
+        <label><input type="checkbox" value="商法"> 商法</label>
+        <label><input type="checkbox" value="伊藤塾"> 伊藤塾</label>
+        <label><input type="checkbox" value="法学入門"> 法学入門</label>
+      </fieldset>
+
+      <label class="checkin-field">範囲・トピック（自由記述）
+        <input id="checkin-topic" type="text" placeholder="例: 表現の自由②各論 / 正当防衛 / 第5回まで">
+      </label>
+
+      <label class="checkin-field">進度メモ（任意）
+        <input id="checkin-progress" type="text" placeholder="例: 第6回の予定だったが第5回までしか進まなかった">
+      </label>
+
+      <div id="checkin-sources" class="checkin-sources">
+        <h3>最近インポートされたソース</h3>
+        <ul id="checkin-source-list"></ul>
+        <p class="caption">該当するソースがあればクリックして今日の学習に紐付け（複数可）。</p>
+      </div>
+
+      <menu class="checkin-menu">
+        <button id="btn-checkin-skip" type="button" class="btn-foot">スキップ（通常キュー）</button>
+        <button id="btn-checkin-submit" type="button" class="btn-primary btn-big">登録して開始</button>
+      </menu>
+    </form>
+  </dialog>
+
   <header class="topbar">
     <h1 class="app-title">SRS暗記アプリ</h1>
     <div class="stats" id="stats">

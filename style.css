@@ -418,7 +418,138 @@ html, body {
 
 .proposal-empty code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+.checkin-modal {
+  border: none;
+  border-radius: 14px;
+  padding: 0;
+  background: transparent;
+  max-width: 600px;
+  width: calc(100% - 32px);
+}
+
+.checkin-modal::backdrop {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.checkin-modal form {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 22px 22px 18px;
+  box-shadow: var(--shadow);
+}
+
+.checkin-modal h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.checkin-modal h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.checkin-subjects {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+  margin: 14px 0 4px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 10px;
+}
+
+.checkin-subjects legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+.checkin-subjects label {
+  font-size: 14px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.checkin-field {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.checkin-field input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.checkin-field input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.checkin-sources {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+#checkin-source-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+#checkin-source-list li {
+  font-size: 13px;
+}
+
+#checkin-source-list label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+#checkin-source-list .src-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.checkin-menu {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin: 18px 0 0;
+  padding: 0;
+}
+
+.checkin-menu button { margin: 0; }
+
 @media (max-width: 480px) {
+  .checkin-subjects { grid-template-columns: repeat(2, 1fr); }
+
   .grade-row {
     grid-template-columns: repeat(2, 1fr);
   }

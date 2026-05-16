@@ -4,6 +4,7 @@ import { fsrs, generatorParameters, Rating, State, createEmptyCard } from 'https
 
 const STORAGE_KEY = 'srs-app-state-v1';
 const CARDS_URL = './cards.json';
+const IMPORTED_SOURCES_URL = './imported_sources.json';
 
 // FSRS インスタンス（既定パラメータ）
 const params = generatorParameters({ enable_fuzz: true });
@@ -13,6 +14,8 @@ const f = fsrs(params);
 let state = {
   cards: [],          // 全カード
   mistakes: [],       // 演習フィードバック: { id, at, text, tags, source, hit_card_ids, status }
+  checkins: [],       // 日次チェックイン: { date, subjects, topic, progress, sources, at }
+  imported_sources: [], // ローカルにキャッシュした最近のソース一覧（imported_sources.json と同期）
   meta: {
     created_at: null,
     last_updated: null,
@@ -59,6 +62,12 @@ const el = {
   btnMistakeSubmit: $('btn-mistake-submit'),
   mistakeFlash: $('mistake-flash'),
   mistakeList: $('mistake-list'),
+  checkinModal: $('checkin-modal'),
+  checkinTopic: $('checkin-topic'),
+  checkinProgress: $('checkin-progress'),
+  checkinSourceList: $('checkin-source-list'),
+  btnCheckinSubmit: $('btn-checkin-submit'),
+  btnCheckinSkip: $('btn-checkin-skip'),
 };
 
 // ─── Storage ───────────────────────────
@@ -84,17 +93,40 @@ async function fetchInitialCards() {
   return await res.json();
 }
 
+async function fetchImportedSources() {
+  try {
+    const res = await fetch(IMPORTED_SOURCES_URL, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j) ? j : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function refreshImportedSources() {
+  const list = await fetchImportedSources();
+  if (Array.isArray(list)) {
+    state.imported_sources = list;
+    saveState();
+  }
+}
+
 async function initState() {
   const saved = loadState();
   if (saved && Array.isArray(saved.cards) && saved.cards.length > 0) {
     state = saved;
-    // migration: 旧 schema に mistakes が無い場合は付与
+    // migration: 旧 schema に新フィールドが無ければ補完
     if (!Array.isArray(state.mistakes)) state.mistakes = [];
+    if (!Array.isArray(state.checkins)) state.checkins = [];
+    if (!Array.isArray(state.imported_sources)) state.imported_sources = [];
   } else {
     const cards = await fetchInitialCards();
     state = {
       cards,
       mistakes: [],
+      checkins: [],
+      imported_sources: [],
       meta: {
         created_at: new Date().toISOString(),
         last_updated: new Date().toISOString(),
@@ -103,6 +135,8 @@ async function initState() {
     };
     saveState();
   }
+  // 最新の imported_sources.json をバックグラウンドで読み込む（存在しなくても無視）
+  await refreshImportedSources();
 }
 
 // ─── Queue ─────────────────────────────
