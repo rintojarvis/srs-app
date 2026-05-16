@@ -553,6 +553,17 @@ function handleMistakeSubmit() {
   state.mistakes.push(entry);
   saveState();
 
+  // Supabase へ push
+  enqueuePush('mistakes', {
+    id: entry.id,
+    at: entry.at,
+    text: entry.text,
+    tags: entry.tags || [],
+    source: entry.source,
+    hit_card_ids: entry.hit_card_ids || [],
+    status: entry.status || 'open'
+  });
+
   if (hitIds.length > 0) {
     pushToFrontOfQueue(hitIds);
     showMistakeFlash(`登録しました。${hitIds.length} 件のカードを優先キュー先頭に追加しました。`, 'ok');
@@ -950,6 +961,18 @@ function recordCheckin(entry) {
   if (idx >= 0) state.checkins[idx] = entry;
   else state.checkins.push(entry);
   saveState();
+
+  // Supabase へ push
+  enqueuePush('checkins', {
+    date: entry.date,
+    subjects: entry.subjects || [],
+    topic: entry.topic || null,
+    progress: entry.progress || null,
+    sources: entry.sources || [],
+    calendar_confirmations: entry.calendar_confirmations || [],
+    manual_entries: entry.manual_entries || [],
+    at: entry.at
+  });
 }
 
 function rebuildAndShow() {
@@ -1018,6 +1041,523 @@ function handleCheckinSkip() {
   rebuildAndShow();
 }
 
+// ─── Supabase Sync Engine ──────────────
+
+function detectDeviceLabel() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+  if (/iPhone/i.test(ua)) return 'iphone';
+  if (/iPad/i.test(ua)) return 'ipad';
+  if (/Android/i.test(ua)) return 'android';
+  if (/Macintosh|Mac OS X/i.test(ua)) return 'mac';
+  if (/Windows/i.test(ua)) return 'pc';
+  return 'web';
+}
+
+function isSignedIn() {
+  return !!(state.sync && state.sync.user_id);
+}
+
+function enqueuePush(table, row) {
+  if (!state.sync) return;
+  if (!Array.isArray(state.sync.pending_pushes)) state.sync.pending_pushes = [];
+  state.sync.pending_pushes.push({ table, row, at: Date.now() });
+  saveState();
+  updateStats();
+  // 非同期 flush（失敗時はキューに残す）
+  flushPushes().catch(e => console.warn('flushPushes error:', e));
+}
+
+let flushingPushes = false;
+async function flushPushes() {
+  if (flushingPushes) return;
+  if (!isSignedIn()) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  flushingPushes = true;
+  try {
+    const queue = (state.sync.pending_pushes || []).slice();
+    const succeeded = new Set();
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i];
+      try {
+        const row = { ...item.row, user_id: state.sync.user_id };
+        let res;
+        if (item.table === 'review_history') {
+          // append-only: insert
+          res = await supabase.from(item.table).insert(row);
+        } else {
+          res = await supabase.from(item.table).upsert(row);
+        }
+        if (res && res.error) {
+          console.warn('push failed:', item.table, res.error);
+          break; // 先頭のエラーで停止、残りは次回再試行
+        }
+        succeeded.add(i);
+      } catch (e) {
+        console.warn('push exception:', e);
+        break;
+      }
+    }
+    // 成功分だけキューから取り除く
+    state.sync.pending_pushes = (state.sync.pending_pushes || []).filter((_, idx) => !succeeded.has(idx));
+    saveState();
+    updateStats();
+  } finally {
+    flushingPushes = false;
+  }
+}
+
+function mergeRemoteCards(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  let changed = false;
+  const byId = new Map(state.cards.map(c => [c.id, c]));
+  for (const r of rows) {
+    if (!r || !r.id) continue;
+    const local = byId.get(r.id);
+    const remoteUpdated = r.updated_at || '';
+    const localUpdated = (local && local.updated_at) || '';
+    if (!local || remoteUpdated > localUpdated) {
+      const merged = {
+        id: r.id,
+        front: r.front,
+        back: r.back,
+        tags: Array.isArray(r.tags) ? r.tags : (r.tags || []),
+        source: r.source || null,
+        linked_cards: Array.isArray(r.linked_cards) ? r.linked_cards : (r.linked_cards || []),
+        fsrs: r.fsrs || (local ? local.fsrs : null),
+        review_history: local ? (local.review_history || []) : [],
+        updated_at: r.updated_at
+      };
+      byId.set(r.id, merged);
+      changed = true;
+    }
+  }
+  if (changed) state.cards = [...byId.values()];
+  return changed;
+}
+
+function mergeRemoteMistakes(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  let changed = false;
+  const byId = new Map((state.mistakes || []).map(m => [m.id, m]));
+  for (const r of rows) {
+    if (!r || !r.id) continue;
+    const local = byId.get(r.id);
+    const remoteUpdated = r.updated_at || r.at || '';
+    const localUpdated = (local && (local.updated_at || local.at)) || '';
+    if (!local || remoteUpdated > localUpdated) {
+      byId.set(r.id, {
+        id: r.id,
+        at: r.at,
+        text: r.text,
+        tags: Array.isArray(r.tags) ? r.tags : (r.tags || []),
+        source: r.source || null,
+        hit_card_ids: Array.isArray(r.hit_card_ids) ? r.hit_card_ids : (r.hit_card_ids || []),
+        status: r.status || 'open',
+        updated_at: r.updated_at
+      });
+      changed = true;
+    }
+  }
+  if (changed) state.mistakes = [...byId.values()];
+  return changed;
+}
+
+function mergeRemoteCheckins(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  let changed = false;
+  const byDate = new Map((state.checkins || []).map(c => [c.date, c]));
+  for (const r of rows) {
+    if (!r || !r.date) continue;
+    const local = byDate.get(r.date);
+    const remoteUpdated = r.updated_at || r.at || '';
+    const localUpdated = (local && (local.updated_at || local.at)) || '';
+    if (!local || remoteUpdated > localUpdated) {
+      byDate.set(r.date, {
+        date: r.date,
+        subjects: Array.isArray(r.subjects) ? r.subjects : (r.subjects || []),
+        topic: r.topic || '',
+        progress: r.progress || '',
+        sources: Array.isArray(r.sources) ? r.sources : (r.sources || []),
+        calendar_confirmations: Array.isArray(r.calendar_confirmations) ? r.calendar_confirmations : (r.calendar_confirmations || []),
+        manual_entries: Array.isArray(r.manual_entries) ? r.manual_entries : (r.manual_entries || []),
+        at: r.at,
+        updated_at: r.updated_at
+      });
+      changed = true;
+    }
+  }
+  if (changed) state.checkins = [...byDate.values()];
+  return changed;
+}
+
+function mergeRemoteImportedSources(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  let changed = false;
+  const byPath = new Map((state.imported_sources || []).map(s => [s.path, s]));
+  for (const r of rows) {
+    if (!r || !r.path) continue;
+    const local = byPath.get(r.path);
+    const remoteUpdated = r.updated_at || r.imported_at || '';
+    const localUpdated = (local && (local.updated_at || local.imported_at)) || '';
+    if (!local || remoteUpdated > localUpdated) {
+      byPath.set(r.path, {
+        path: r.path,
+        basename: r.basename,
+        subject: r.subject || null,
+        imported_at: r.imported_at,
+        card_count: r.card_count || 0,
+        card_ids: Array.isArray(r.card_ids) ? r.card_ids : (r.card_ids || []),
+        updated_at: r.updated_at
+      });
+      changed = true;
+    }
+  }
+  if (changed) state.imported_sources = [...byPath.values()];
+  return changed;
+}
+
+function mergeRemoteTodayEvents(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  let changed = false;
+  const byDate = new Map((state.today_events || []).map(t => [t.date, t]));
+  for (const r of rows) {
+    if (!r || !r.date) continue;
+    const local = byDate.get(r.date);
+    const remoteUpdated = r.updated_at || '';
+    const localUpdated = (local && local.updated_at) || '';
+    if (!local || remoteUpdated > localUpdated) {
+      byDate.set(r.date, {
+        date: r.date,
+        events: Array.isArray(r.events) ? r.events : (r.events || []),
+        updated_at: r.updated_at
+      });
+      changed = true;
+    }
+  }
+  if (changed) state.today_events = [...byDate.values()];
+  return changed;
+}
+
+async function pull() {
+  if (!isSignedIn()) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  const since = new Date(state.sync.last_pull_at || 0).toISOString();
+  const t = Date.now();
+  let anyChange = false;
+  try {
+    const [cardsR, mistakesR, checkinsR, importedR, todayR] = await Promise.all([
+      supabase.from('cards').select('*').gt('updated_at', since),
+      supabase.from('mistakes').select('*').gt('updated_at', since),
+      supabase.from('checkins').select('*').gt('updated_at', since),
+      supabase.from('imported_sources').select('*').gt('updated_at', since),
+      supabase.from('today_events').select('*').gt('updated_at', since)
+    ]);
+    if (cardsR.data) anyChange = mergeRemoteCards(cardsR.data) || anyChange;
+    if (mistakesR.data) anyChange = mergeRemoteMistakes(mistakesR.data) || anyChange;
+    if (checkinsR.data) anyChange = mergeRemoteCheckins(checkinsR.data) || anyChange;
+    if (importedR.data) anyChange = mergeRemoteImportedSources(importedR.data) || anyChange;
+    if (todayR.data) anyChange = mergeRemoteTodayEvents(todayR.data) || anyChange;
+    state.sync.last_pull_at = t;
+    saveState();
+    if (anyChange) renderAll();
+  } catch (e) {
+    console.warn('pull failed:', e);
+  }
+}
+
+function renderAll() {
+  // 既存の表示をリビルド（review タブのみ buildQueue を回す）
+  buildQueue();
+  updateStats();
+  if (activeTab === 'review') {
+    if (queue.length === 0) showDone();
+    else showCard(queue[0]);
+  } else if (activeTab === 'mistake') {
+    renderMistakeList();
+    refreshMistakeSourceOptions();
+  }
+}
+
+let realtimeChannel = null;
+function subscribeRealtime() {
+  if (!isSignedIn()) return;
+  if (realtimeChannel) {
+    try { supabase.removeChannel(realtimeChannel); } catch (e) {}
+    realtimeChannel = null;
+  }
+  const tables = ['cards', 'review_history', 'mistakes', 'checkins', 'today_events', 'imported_sources'];
+  let ch = supabase.channel('srs-sync');
+  for (const tbl of tables) {
+    ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: tbl }, payload => {
+      applyRemoteChange(tbl, payload);
+    });
+  }
+  realtimeChannel = ch.subscribe();
+}
+
+function applyRemoteChange(table, payload) {
+  if (!payload) return;
+  // 自分の uid のものだけ反映（保険）
+  const row = payload.new || payload.record || null;
+  if (row && row.user_id && state.sync.user_id && row.user_id !== state.sync.user_id) return;
+
+  let changed = false;
+  if (table === 'cards' && row) changed = mergeRemoteCards([row]);
+  else if (table === 'mistakes' && row) changed = mergeRemoteMistakes([row]);
+  else if (table === 'checkins' && row) changed = mergeRemoteCheckins([row]);
+  else if (table === 'imported_sources' && row) changed = mergeRemoteImportedSources([row]);
+  else if (table === 'today_events' && row) changed = mergeRemoteTodayEvents([row]);
+  // review_history はローカル状態に持たないので無視（card.review_history はローカル独自）
+
+  if (changed) {
+    saveState();
+    renderAll();
+  }
+}
+
+// 初回サインイン後のローカル → クラウド一括 upsert
+async function migrateLocalToSupabase() {
+  if (!isSignedIn()) return;
+  try {
+    // cards のリモート件数を確認
+    const { count, error } = await supabase
+      .from('cards').select('id', { count: 'exact', head: true });
+    if (error) {
+      console.warn('migrate count failed:', error);
+      return;
+    }
+    if ((count || 0) > 0) return; // 既にクラウド側にデータがある → 移行不要
+
+    let total = 0;
+    const uid = state.sync.user_id;
+
+    // cards
+    if (Array.isArray(state.cards) && state.cards.length > 0) {
+      const rows = state.cards.map(c => ({
+        id: c.id,
+        front: c.front,
+        back: c.back,
+        tags: c.tags || [],
+        source: c.source || null,
+        linked_cards: c.linked_cards || [],
+        fsrs: c.fsrs,
+        user_id: uid
+      }));
+      // チャンク化（500件ずつ）
+      for (let i = 0; i < rows.length; i += 500) {
+        const slice = rows.slice(i, i + 500);
+        const { error: e } = await supabase.from('cards').upsert(slice);
+        if (e) { console.warn('migrate cards chunk failed:', e); break; }
+        total += slice.length;
+      }
+    }
+    // mistakes
+    if (Array.isArray(state.mistakes) && state.mistakes.length > 0) {
+      const rows = state.mistakes.map(m => ({
+        id: m.id,
+        at: m.at,
+        text: m.text,
+        tags: m.tags || [],
+        source: m.source || null,
+        hit_card_ids: m.hit_card_ids || [],
+        status: m.status || 'open',
+        user_id: uid
+      }));
+      const { error: e } = await supabase.from('mistakes').upsert(rows);
+      if (!e) total += rows.length; else console.warn('migrate mistakes failed:', e);
+    }
+    // checkins
+    if (Array.isArray(state.checkins) && state.checkins.length > 0) {
+      const rows = state.checkins.map(c => ({
+        date: c.date,
+        subjects: c.subjects || [],
+        topic: c.topic || null,
+        progress: c.progress || null,
+        sources: c.sources || [],
+        calendar_confirmations: c.calendar_confirmations || [],
+        manual_entries: c.manual_entries || [],
+        at: c.at,
+        user_id: uid
+      }));
+      const { error: e } = await supabase.from('checkins').upsert(rows);
+      if (!e) total += rows.length; else console.warn('migrate checkins failed:', e);
+    }
+    // imported_sources
+    if (Array.isArray(state.imported_sources) && state.imported_sources.length > 0) {
+      const rows = state.imported_sources.map(s => ({
+        path: s.path,
+        basename: s.basename,
+        subject: s.subject || null,
+        imported_at: s.imported_at,
+        card_count: s.card_count || 0,
+        card_ids: s.card_ids || [],
+        user_id: uid
+      }));
+      const { error: e } = await supabase.from('imported_sources').upsert(rows, { onConflict: 'path' });
+      if (!e) total += rows.length; else console.warn('migrate imported_sources failed:', e);
+    }
+    // today_events
+    if (Array.isArray(state.today_events) && state.today_events.length > 0) {
+      const rows = state.today_events.map(t => ({
+        date: t.date,
+        events: t.events || [],
+        user_id: uid
+      }));
+      const { error: e } = await supabase.from('today_events').upsert(rows);
+      if (!e) total += rows.length; else console.warn('migrate today_events failed:', e);
+    }
+
+    if (total > 0) {
+      showAuthFlash(`ローカルデータ ${total} 件を同期しました`, 'ok');
+    }
+  } catch (e) {
+    console.warn('migrateLocalToSupabase error:', e);
+  }
+}
+
+// ─── Auth UI ──────────────────────────
+function showAuthFlash(message, kind) {
+  if (!el.authFlash) return;
+  el.authFlash.textContent = message;
+  el.authFlash.classList.remove('hidden', 'ok', 'warn');
+  el.authFlash.classList.add(kind === 'warn' ? 'warn' : 'ok');
+}
+
+function openAuthModal() {
+  if (el.authModal && typeof el.authModal.showModal === 'function' && !el.authModal.open) {
+    el.authModal.showModal();
+  }
+}
+
+function closeAuthModal() {
+  if (el.authModal && el.authModal.open) el.authModal.close();
+}
+
+function renderAuthStatus() {
+  if (!el.authStatus) return;
+  if (isSignedIn()) {
+    el.authStatus.classList.remove('hidden');
+    if (el.authStatusEmail) {
+      el.authStatusEmail.textContent = 'サインイン中: ' + (state.sync.user_email || state.sync.user_id || '');
+    }
+  } else {
+    el.authStatus.classList.add('hidden');
+  }
+}
+
+async function handleSendMagicLink() {
+  const email = (el.authEmail && el.authEmail.value || '').trim();
+  if (!email) {
+    showAuthFlash('メールアドレスを入力してください', 'warn');
+    return;
+  }
+  try {
+    if (el.btnAuthSend) el.btnAuthSend.disabled = true;
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href }
+    });
+    if (error) {
+      showAuthFlash('送信失敗: ' + error.message, 'warn');
+    } else {
+      showAuthFlash('メールを確認してリンクをクリックしてください。', 'ok');
+    }
+  } catch (e) {
+    showAuthFlash('送信失敗: ' + (e && e.message || String(e)), 'warn');
+  } finally {
+    if (el.btnAuthSend) el.btnAuthSend.disabled = false;
+  }
+}
+
+function handleAuthSkip() {
+  closeAuthModal();
+}
+
+async function handleSignOut() {
+  try {
+    await supabase.auth.signOut();
+  } catch (e) {
+    console.warn('signOut failed:', e);
+  }
+  state.sync.user_id = null;
+  state.sync.user_email = null;
+  state.sync.last_pull_at = 0;
+  saveState();
+  if (realtimeChannel) {
+    try { supabase.removeChannel(realtimeChannel); } catch (e) {}
+    realtimeChannel = null;
+  }
+  renderAuthStatus();
+  openAuthModal();
+}
+
+function handleExportUserId() {
+  if (!isSignedIn()) {
+    alert('サインインしてから取得してください。');
+    return;
+  }
+  const payload = {
+    user_id: state.sync.user_id,
+    user_email: state.sync.user_email,
+    note: 'PC スクリプトの service_role 実行時に user_id として指定する値。'
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'user_id.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function applySession(session) {
+  if (session && session.user) {
+    state.sync.user_id = session.user.id;
+    state.sync.user_email = session.user.email || null;
+    saveState();
+    renderAuthStatus();
+    closeAuthModal();
+    // 初回サインインなら localStorage → Supabase 移行
+    await migrateLocalToSupabase();
+    // 初回 pull + Realtime 購読 + キュー flush
+    await pull();
+    subscribeRealtime();
+    await flushPushes();
+  } else {
+    state.sync.user_id = null;
+    state.sync.user_email = null;
+    saveState();
+    renderAuthStatus();
+  }
+}
+
+async function initAuth() {
+  // URL フラグメントにマジックリンクトークンが含まれていれば取り込む
+  // （supabase-js v2 は detectSessionInUrl: true で自動処理する）
+  let session = null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    session = data && data.session ? data.session : null;
+  } catch (e) {
+    console.warn('getSession failed:', e);
+  }
+
+  // 認証状態の変化を購読
+  supabase.auth.onAuthStateChange((_event, sess) => {
+    applySession(sess).catch(e => console.warn('applySession error:', e));
+  });
+
+  if (session) {
+    await applySession(session);
+  } else {
+    openAuthModal();
+  }
+}
+
 // ─── Wire up ───────────────────────────
 function attachEvents() {
   el.btnShow.addEventListener('click', handleShow);
@@ -1057,6 +1597,30 @@ function attachEvents() {
   if (el.btnFetchToday) el.btnFetchToday.addEventListener('click', handleFetchToday);
   if (el.btnAddManualEntry) el.btnAddManualEntry.addEventListener('click', addManualEntry);
 
+  // Auth UI
+  if (el.btnAuthSend) el.btnAuthSend.addEventListener('click', handleSendMagicLink);
+  if (el.btnAuthSkip) el.btnAuthSkip.addEventListener('click', handleAuthSkip);
+  if (el.btnSignOut) el.btnSignOut.addEventListener('click', handleSignOut);
+  if (el.btnExportUserid) el.btnExportUserid.addEventListener('click', handleExportUserId);
+
+  // オンライン復帰時に未送信を flush、オフラインで状態更新
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      if (state.sync) state.sync.online = true;
+      flushPushes().catch(e => console.warn(e));
+    });
+    window.addEventListener('offline', () => {
+      if (state.sync) state.sync.online = false;
+    });
+    // 可視化時にも軽く pull / flush
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && isSignedIn()) {
+        pull().catch(e => console.warn(e));
+        flushPushes().catch(e => console.warn(e));
+      }
+    });
+  }
+
   // キーボードショートカット（PC向け）
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -1082,15 +1646,23 @@ function attachEvents() {
     attachEvents();
     renderTab('review');
 
+    // Auth 初期化（セッション有/無 を判定し、無ければ auth-modal を表示）
+    // Auth フローと並行して、ローカルキャッシュで UI を即起動できるようにする
+    initAuth().catch(e => console.warn('initAuth error:', e));
+
     // 当日のチェックインが未記録ならモーダル → 完了時に rebuildAndShow
     const todayEntry = getTodayCheckin();
     if (!todayEntry) {
-      openCheckinModal();
-      // モーダルが開いていてもキューは空で初期表示しておく
+      // auth-modal が開いていない（既にサインイン済 or skip 済）なら checkin を出す
+      // auth-modal を優先表示するため、ここでは buildQueue のみ
       buildQueue();
       updateStats();
       if (queue.length === 0) showDone();
       else showCard(queue[0]);
+      // auth-modal が開いていない場合のみ checkin モーダルを開く
+      if (!(el.authModal && el.authModal.open)) {
+        openCheckinModal();
+      }
     } else {
       buildQueue();
       if (queue.length === 0) {
