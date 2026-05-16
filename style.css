@@ -574,8 +574,227 @@ html, body {
 
 .checkin-menu button { margin: 0; }
 
+/* ── 新 UI: section / カレンダー / manual-entry ── */
+.checkin-intro {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.checkin-section {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.checkin-section-h {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.calendar-events-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-event {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.calendar-event-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.calendar-event-head .src-meta {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.calendar-event-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.calendar-event-btn {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.calendar-event-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+.calendar-event-btn.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.calendar-event-btn[data-status="absent"].selected {
+  background: var(--again);
+  border-color: var(--again);
+}
+
+.calendar-event-btn[data-status="drifted"].selected {
+  background: var(--hard);
+  border-color: var(--hard);
+}
+
+.calendar-event-drift {
+  margin-top: 8px;
+}
+
+.calendar-event-actual {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.calendar-event-actual:focus { outline: none; border-color: var(--primary); }
+
+.manual-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.manual-entry {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px 10px;
+}
+
+.manual-entry-remove {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.manual-entry-remove:hover { color: var(--danger); background: var(--bg); }
+
+.manual-entry-subjects,
+.manual-entry-source {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 10px;
+  margin: 6px 0 0;
+}
+
+.manual-entry-subjects legend,
+.manual-entry-source legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+.manual-entry-subjects {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 8px;
+}
+
+.manual-entry-subjects label {
+  font-size: 13px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.manual-entry-source {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.manual-entry-source label {
+  font-size: 13px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.manual-entry-course-row,
+.manual-entry-topic {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.manual-entry-course,
+.manual-entry-topic-input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.manual-entry-course:focus,
+.manual-entry-topic-input:focus { outline: none; border-color: var(--primary); }
+
+.btn-add-entry {
+  width: 100%;
+  margin-top: 4px;
+  border-style: dashed;
+  font-weight: 600;
+}
+
 @media (max-width: 480px) {
   .checkin-subjects { grid-template-columns: repeat(2, 1fr); }
+  .manual-entry-subjects { grid-template-columns: repeat(2, 1fr); }
 
   .grade-row {
     grid-template-columns: repeat(2, 1fr);

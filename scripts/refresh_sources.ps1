@@ -47,21 +47,21 @@ foreach ($e in $importedEntries) {
 }
 
 # ─── 科目推定 ─────────────────────────────────────────
+# 9 科目: 憲法 / 民法 / 刑法 / 商法 / 民事訴訟法 / 刑事訴訟法 / 行政法 / 倒産法 / 法学入門
 function Guess-Subject {
     param([string]$Path)
     $segments = $Path -split '[\\/]'
     foreach ($seg in $segments) {
         if ($seg -match '憲法') { return '憲法' }
         if ($seg -match '民法' -and $seg -notmatch '民事') { return '民法' }
-        if ($seg -match '民事訴訟') { return '民訴' }
+        if ($seg -match '民事訴訟') { return '民事訴訟法' }
         if ($seg -match '刑法' -and $seg -notmatch '刑事') { return '刑法' }
-        if ($seg -match '刑事訴訟') { return '刑訴' }
+        if ($seg -match '刑事訴訟') { return '刑事訴訟法' }
         if ($seg -match '行政法') { return '行政法' }
         if ($seg -match '商法|会社法') { return '商法' }
+        if ($seg -match '倒産|破産|民事再生') { return '倒産法' }
         if ($seg -match '法学入門演習') { return '法学入門' }
         if ($seg -match '法学入門講義|法学入門') { return '法学入門' }
-        if ($seg -match 'アメリカ法') { return 'アメリカ法' }
-        if ($seg -match '伊藤塾') { return '伊藤塾' }
     }
     return ''
 }
