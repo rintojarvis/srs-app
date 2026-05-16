@@ -792,6 +792,119 @@ html, body {
   font-weight: 600;
 }
 
+/* ── Auth modal ── */
+.auth-modal {
+  border: none;
+  border-radius: 14px;
+  padding: 0;
+  background: transparent;
+  max-width: 440px;
+  width: calc(100% - 32px);
+}
+
+.auth-modal::backdrop {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(2px);
+}
+
+.auth-form {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 22px 22px 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.auth-field {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.auth-field input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+}
+
+.auth-field input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.auth-menu {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+  margin: 6px 0 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+.auth-menu button { margin: 0; }
+
+/* ── Auth status (header) ── */
+.auth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.auth-status-email {
+  font-weight: 600;
+  color: var(--text);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-sign-out {
+  font-size: 11px;
+  padding: 4px 10px;
+  min-height: 28px;
+  border-radius: 999px;
+}
+
+/* ── Sync pending badge ── */
+.sync-pending {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--hard);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.sync-pending strong { color: var(--hard); font-size: 13px; }
+
+/* ── Footer user_id export button ── */
+#btn-export-userid {
+  font-size: 12px;
+}
+
 @media (max-width: 480px) {
   .checkin-subjects { grid-template-columns: repeat(2, 1fr); }
   .manual-entry-subjects { grid-template-columns: repeat(2, 1fr); }
@@ -806,4 +919,7 @@ html, body {
   .stats { gap: 8px; font-size: 12px; }
   .app-title { font-size: 16px; }
   .tab-btn { padding: 10px 12px; font-size: 13px; }
+
+  .auth-status-email { max-width: 100px; font-size: 11px; }
+  #btn-export-userid { font-size: 11px; }
 }

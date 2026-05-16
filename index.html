@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f2937">
   <title>SRS暗記アプリ</title>
-  <link rel="stylesheet" href="./style.css?v=20260516b">
+  <link rel="stylesheet" href="./style.css?v=20260517a">
   <link rel="manifest" href="./manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -13,6 +13,21 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
 </head>
 <body>
+  <dialog id="auth-modal" class="auth-modal">
+    <form method="dialog" class="auth-form">
+      <h2>サインイン</h2>
+      <p class="caption">Supabase でサインインするとデータが iPhone / iPad / PC で同期されます。メールアドレスにマジックリンクが届きます。</p>
+      <label class="auth-field">メールアドレス
+        <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required>
+      </label>
+      <p id="auth-flash" class="mistake-flash hidden"></p>
+      <menu class="auth-menu">
+        <button type="button" id="btn-auth-skip" class="btn-foot">オフラインで使う</button>
+        <button type="button" id="btn-auth-send" class="btn-primary btn-big">Magic Link を送信</button>
+      </menu>
+    </form>
+  </dialog>
+
   <dialog id="checkin-modal" class="checkin-modal">
     <form method="dialog">
       <h2>今日の学習内容</h2>
@@ -88,6 +103,11 @@
         <span>完了 <strong id="stat-done">0</strong></span>
         <span>総数 <strong id="stat-total">0</strong></span>
         <span>演習未消化 <strong id="stat-mistakes">0</strong></span>
+        <span class="sync-pending hidden" id="sync-pending">📤 未同期: <strong id="stat-pending">0</strong> 件</span>
+      </div>
+      <div id="auth-status" class="auth-status hidden">
+        <span class="auth-status-email" id="auth-status-email"></span>
+        <button type="button" id="btn-sign-out" class="btn-foot btn-sign-out">サインアウト</button>
       </div>
     </div>
   </header>
@@ -167,10 +187,11 @@
       インポート
       <input type="file" id="file-import" accept="application/json" hidden>
     </label>
+    <button class="btn-foot" id="btn-export-userid">user_id を保存（PC スクリプト用）</button>
     <button class="btn-foot btn-danger" id="btn-reset">リセット</button>
   </footer>
 
-  <script type="module" src="./app.js?v=20260516b"></script>
+  <script type="module" src="./app.js?v=20260517a"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {

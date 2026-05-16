@@ -1,10 +1,17 @@
 // SRS暗記アプリ — FSRS-5 ベース
 // ts-fsrs を esm.sh 経由でロード（ビルド不要）
 import { fsrs, generatorParameters, Rating, State, createEmptyCard } from 'https://esm.sh/ts-fsrs@4';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase/config.js';
 
 const STORAGE_KEY = 'srs-app-state-v1';
 const CARDS_URL = './cards.json';
 const IMPORTED_SOURCES_URL = './imported_sources.json';
+
+// ─── Supabase Client ──────────────────
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+});
 
 // FSRS インスタンス（既定パラメータ）
 const params = generatorParameters({ enable_fuzz: true });
@@ -16,6 +23,14 @@ let state = {
   mistakes: [],       // 演習フィードバック: { id, at, text, tags, source, hit_card_ids, status }
   checkins: [],       // 日次チェックイン: { date, calendar_confirmations, manual_entries, at, ... 旧フィールド互換 }
   imported_sources: [], // ローカルにキャッシュした最近のソース一覧（imported_sources.json と同期）
+  today_events: [],   // ローカルにキャッシュした今日の予定（today.json と同期）
+  sync: {
+    last_pull_at: 0,    // unix ms
+    pending_pushes: [], // { table, row, at }
+    user_id: null,
+    user_email: null,
+    online: typeof navigator !== 'undefined' ? navigator.onLine : true
+  },
   meta: {
     created_at: null,
     last_updated: null,
@@ -93,6 +108,18 @@ const el = {
   manualEntries: $('manual-entries'),
   btnAddManualEntry: $('btn-add-manual-entry'),
   tplManualEntry: $('tpl-manual-entry'),
+  // Auth / sync
+  authModal: $('auth-modal'),
+  authEmail: $('auth-email'),
+  authFlash: $('auth-flash'),
+  btnAuthSend: $('btn-auth-send'),
+  btnAuthSkip: $('btn-auth-skip'),
+  authStatus: $('auth-status'),
+  authStatusEmail: $('auth-status-email'),
+  btnSignOut: $('btn-sign-out'),
+  syncPending: $('sync-pending'),
+  statPending: $('stat-pending'),
+  btnExportUserid: $('btn-export-userid'),
 };
 
 // ─── Storage ───────────────────────────
@@ -145,6 +172,18 @@ async function initState() {
     if (!Array.isArray(state.mistakes)) state.mistakes = [];
     if (!Array.isArray(state.checkins)) state.checkins = [];
     if (!Array.isArray(state.imported_sources)) state.imported_sources = [];
+    if (!Array.isArray(state.today_events)) state.today_events = [];
+    if (!state.sync || typeof state.sync !== 'object') {
+      state.sync = {
+        last_pull_at: 0,
+        pending_pushes: [],
+        user_id: null,
+        user_email: null,
+        online: typeof navigator !== 'undefined' ? navigator.onLine : true
+      };
+    }
+    if (!Array.isArray(state.sync.pending_pushes)) state.sync.pending_pushes = [];
+    if (typeof state.sync.last_pull_at !== 'number') state.sync.last_pull_at = 0;
   } else {
     const cards = await fetchInitialCards();
     state = {
@@ -152,6 +191,14 @@ async function initState() {
       mistakes: [],
       checkins: [],
       imported_sources: [],
+      today_events: [],
+      sync: {
+        last_pull_at: 0,
+        pending_pushes: [],
+        user_id: null,
+        user_email: null,
+        online: typeof navigator !== 'undefined' ? navigator.onLine : true
+      },
       meta: {
         created_at: new Date().toISOString(),
         last_updated: new Date().toISOString(),
@@ -357,6 +404,12 @@ function updateStats() {
   el.statDone.textContent = done;
   const openMistakes = (state.mistakes || []).filter(m => m.status === 'open').length;
   if (el.statMistakes) el.statMistakes.textContent = openMistakes;
+  // pending push count
+  const pending = (state.sync && Array.isArray(state.sync.pending_pushes)) ? state.sync.pending_pushes.length : 0;
+  if (el.statPending) el.statPending.textContent = pending;
+  if (el.syncPending) {
+    el.syncPending.classList.toggle('hidden', pending === 0);
+  }
 }
 
 // ─── Tabs ──────────────────────────────
@@ -590,15 +643,38 @@ function handleGrade(ratingValue) {
   if (!updatedFc) return;
 
   card.fsrs = fromFsrsCard(updatedFc);
-  card.review_history = card.review_history || [];
-  card.review_history.push({
+  card.updated_at = new Date().toISOString();
+  const reviewEntry = {
     at: new Date().toISOString(),
     rating: ratingLabel(ratingValue),
     card_review: selectedCardReview,
     comment: el.comment.value.trim() || null
-  });
+  };
+  card.review_history = card.review_history || [];
+  card.review_history.push(reviewEntry);
 
   saveState();
+
+  // Supabase へ push
+  enqueuePush('cards', {
+    id: card.id,
+    front: card.front,
+    back: card.back,
+    tags: card.tags || [],
+    source: card.source || null,
+    linked_cards: card.linked_cards || [],
+    fsrs: card.fsrs,
+    updated_at: card.updated_at
+  });
+  enqueuePush('review_history', {
+    card_id: card.id,
+    at: reviewEntry.at,
+    rating: String(reviewEntry.rating || '').toLowerCase(),
+    card_review: reviewEntry.card_review,
+    comment: reviewEntry.comment,
+    device: detectDeviceLabel()
+  });
+
   // キューから取り除き次へ
   queue.shift();
   if (queue.length === 0) {
