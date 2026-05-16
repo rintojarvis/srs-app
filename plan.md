@@ -192,3 +192,14 @@
 
 - `research_algorithm.md`：SM-2 / FSRS / Leitner の詳細比較
 - `research_platform.md`：PWA / ネイティブ / ハイブリッド / Shortcuts / 操作ロック実現性の詳細比較
+
+---
+
+### 2026-05-16 実装: 日次チェックイン + ソース取込
+
+- 起動時に当日チェックインが未記録なら `<dialog id="checkin-modal">` を `showModal()`。科目チェックボックス・トピック自由記述・進度メモ・最近のソース選択を保存し `state.checkins` に当日エントリとして 1 件追加（再起動しても同日中は再表示しない）。
+- `buildQueue()` を「優先カード（チェックインの科目タグ / source 一致 / topic 部分一致のいずれか）→ 通常 due カード」の 2 段構成に変更。優先カードは New でも当日キューに含める。
+- ソース取込は 2 スクリプト構成: `scripts/refresh_sources.ps1` がマイドライブ配下の MD を 14 日窓でスキャンして `sources.json` を吐き、`scripts/import_md.ps1` が `claude -p` で JSON カード配列を生成 → 既存 `cards.json` の最大 ID + 1 から採番して追記 → `imported_sources.json` を更新。書込前に `backups/cards.json.bak.<ts>` を必ず取り、パース失敗時は cards.json を上書きしない。
+- Web 側は `imported_sources.json` を `fetch` してチェックインモーダルの「最近のソース」に最新 5 件を表示。スクリプトは PowerShell から手動実行する v1 運用。
+- テスト: `scripts/test_ingestion.ps1` で `予習課題_第3回_表現の自由①総論_改訂版.md` を取込 → 22 枚を card_031〜card_052 として追加成功。
+- JSON 直列化の落とし穴: 単要素配列が PowerShell の `ConvertTo-Json` でオブジェクトに潰れる問題に対し、`@($x) | ConvertTo-Json -AsArray` で配列を強制保持。

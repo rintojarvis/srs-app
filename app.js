@@ -140,12 +140,84 @@ async function initState() {
 }
 
 // ─── Queue ─────────────────────────────
+function todayDateStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getTodayCheckin() {
+  const today = todayDateStr();
+  if (!Array.isArray(state.checkins)) return null;
+  return state.checkins.find(c => c.date === today) || null;
+}
+
+function cardMatchesCheckin(card, checkin) {
+  if (!checkin) return false;
+  const subjects = Array.isArray(checkin.subjects) ? checkin.subjects : [];
+  const sources = Array.isArray(checkin.sources) ? checkin.sources : [];
+  const topic = (checkin.topic || '').trim();
+
+  // 科目タグ交差
+  if (subjects.length > 0 && Array.isArray(card.tags)) {
+    for (const s of subjects) {
+      if (!s) continue;
+      if (card.tags.some(t => String(t).includes(s))) return true;
+    }
+  }
+  // ソース完全一致
+  if (sources.length > 0 && card.source) {
+    if (sources.includes(card.source)) return true;
+  }
+  // トピック単語の部分一致（2文字以上のトークンのみ・全文は無視して粗くマッチ）
+  if (topic.length >= 2) {
+    const tokens = topic.split(/[\s、,，・/]+/).map(s => s.trim()).filter(s => s.length >= 2);
+    const haystack = [
+      card.front || '',
+      card.back || '',
+      ...(Array.isArray(card.tags) ? card.tags : [])
+    ].join(' ');
+    for (const tok of tokens) {
+      if (haystack.includes(tok)) return true;
+    }
+  }
+  return false;
+}
+
 function buildQueue() {
   const now = new Date();
-  queue = state.cards
-    .filter(c => new Date(c.fsrs.due) <= now)
-    .sort((a, b) => new Date(a.fsrs.due) - new Date(b.fsrs.due))
-    .map(c => c.id);
+  const checkin = getTodayCheckin();
+
+  // 全カードを「優先」「通常 due」の 2 グループに分ける
+  const priorityIds = [];
+  const dueIds = [];
+  const seen = new Set();
+
+  // 優先: チェックインにマッチするカード（New でも今日のキューに含める）
+  if (checkin) {
+    const matched = state.cards.filter(c => cardMatchesCheckin(c, checkin));
+    // due ≤ 今日 を先頭、新規/未来 due はその後
+    matched.sort((a, b) => new Date(a.fsrs.due) - new Date(b.fsrs.due));
+    for (const c of matched) {
+      if (!seen.has(c.id)) {
+        seen.add(c.id);
+        priorityIds.push(c.id);
+      }
+    }
+  }
+
+  // 通常 due
+  const dueCards = state.cards
+    .filter(c => new Date(c.fsrs.due) <= now && !seen.has(c.id))
+    .sort((a, b) => new Date(a.fsrs.due) - new Date(b.fsrs.due));
+  for (const c of dueCards) {
+    seen.add(c.id);
+    dueIds.push(c.id);
+  }
+
+  queue = [...priorityIds, ...dueIds];
 }
 
 function getCard(id) {
@@ -522,6 +594,105 @@ async function handleReset() {
   else showCard(queue[0]);
 }
 
+// ─── Daily Check-in ────────────────────
+function renderCheckinSourceList() {
+  if (!el.checkinSourceList) return;
+  const sources = Array.isArray(state.imported_sources) ? state.imported_sources : [];
+  if (sources.length === 0) {
+    el.checkinSourceList.innerHTML = '<li><span class="caption">最近インポートされたソースはありません。</span></li>';
+    return;
+  }
+  // 最新順 5 件
+  const recent = [...sources]
+    .sort((a, b) => String(b.imported_at || '').localeCompare(String(a.imported_at || '')))
+    .slice(0, 5);
+  el.checkinSourceList.innerHTML = recent.map((s, idx) => {
+    const basename = escapeHtml(s.basename || s.path || `source_${idx}`);
+    const subject = s.subject ? `<span class="src-meta">${escapeHtml(s.subject)}</span>` : '';
+    const count = (typeof s.card_count === 'number') ? `<span class="src-meta">${s.card_count} 枚</span>` : '';
+    const val = escapeHtml(s.basename || s.path || '');
+    return `<li>
+      <label>
+        <input type="checkbox" class="checkin-source-chk" value="${val}">
+        <span>
+          <strong>${basename}</strong>
+          ${subject} ${count}
+        </span>
+      </label>
+    </li>`;
+  }).join('');
+}
+
+function openCheckinModal() {
+  if (!el.checkinModal || typeof el.checkinModal.showModal !== 'function') return;
+  // 念のためフォームをクリア
+  document.querySelectorAll('.checkin-subjects input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  if (el.checkinTopic) el.checkinTopic.value = '';
+  if (el.checkinProgress) el.checkinProgress.value = '';
+  renderCheckinSourceList();
+  el.checkinModal.showModal();
+}
+
+function closeCheckinModal() {
+  if (el.checkinModal && el.checkinModal.open) el.checkinModal.close();
+}
+
+function gatherCheckinForm() {
+  const subjects = [...document.querySelectorAll('.checkin-subjects input[type="checkbox"]:checked')]
+    .map(cb => cb.value);
+  const sources = [...document.querySelectorAll('.checkin-source-chk:checked')]
+    .map(cb => cb.value);
+  return {
+    date: todayDateStr(),
+    subjects,
+    topic: (el.checkinTopic && el.checkinTopic.value || '').trim(),
+    progress: (el.checkinProgress && el.checkinProgress.value || '').trim(),
+    sources,
+    at: new Date().toISOString()
+  };
+}
+
+function recordCheckin(entry) {
+  if (!Array.isArray(state.checkins)) state.checkins = [];
+  // 当日の既存エントリを置き換え
+  const idx = state.checkins.findIndex(c => c.date === entry.date);
+  if (idx >= 0) state.checkins[idx] = entry;
+  else state.checkins.push(entry);
+  saveState();
+}
+
+function rebuildAndShow() {
+  buildQueue();
+  if (queue.length === 0) {
+    updateStats();
+    showDone();
+  } else {
+    showCard(queue[0]);
+  }
+}
+
+function handleCheckinSubmit() {
+  const entry = gatherCheckinForm();
+  recordCheckin(entry);
+  closeCheckinModal();
+  rebuildAndShow();
+}
+
+function handleCheckinSkip() {
+  // 空エントリ（subjects: [], sources: []）を記録 → 当日もう聞かない
+  const entry = {
+    date: todayDateStr(),
+    subjects: [],
+    topic: '',
+    progress: '',
+    sources: [],
+    at: new Date().toISOString()
+  };
+  recordCheckin(entry);
+  closeCheckinModal();
+  rebuildAndShow();
+}
+
 // ─── Wire up ───────────────────────────
 function attachEvents() {
   el.btnShow.addEventListener('click', handleShow);
@@ -554,6 +725,10 @@ function attachEvents() {
     el.btnMistakeSubmit.addEventListener('click', handleMistakeSubmit);
   }
 
+  // チェックインモーダル
+  if (el.btnCheckinSubmit) el.btnCheckinSubmit.addEventListener('click', handleCheckinSubmit);
+  if (el.btnCheckinSkip) el.btnCheckinSkip.addEventListener('click', handleCheckinSkip);
+
   // キーボードショートカット（PC向け）
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -576,14 +751,26 @@ function attachEvents() {
 (async function main() {
   try {
     await initState();
-    buildQueue();
     attachEvents();
     renderTab('review');
-    if (queue.length === 0) {
+
+    // 当日のチェックインが未記録ならモーダル → 完了時に rebuildAndShow
+    const todayEntry = getTodayCheckin();
+    if (!todayEntry) {
+      openCheckinModal();
+      // モーダルが開いていてもキューは空で初期表示しておく
+      buildQueue();
       updateStats();
-      showDone();
+      if (queue.length === 0) showDone();
+      else showCard(queue[0]);
     } else {
-      showCard(queue[0]);
+      buildQueue();
+      if (queue.length === 0) {
+        updateStats();
+        showDone();
+      } else {
+        showCard(queue[0]);
+      }
     }
   } catch (err) {
     console.error(err);
