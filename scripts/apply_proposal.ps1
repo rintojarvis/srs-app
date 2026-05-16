@@ -59,28 +59,59 @@ function Split-Sections {
     param([string]$text)
 
     $sections = @{}
-    # ## XXX で始まる見出しを境に分割。複数行/単一行どちらでも動くよう [\r\n]* もしくは空白でセパレートを許容
-    # まず ## を改行に正規化
-    $normalized = [regex]::Replace($text, '(?<!\n)## ', "`n## ")
+    $sectionNames = @(
+        '削除候補',
+        '分割候補',
+        '書き換え候補',
+        '深掘り（関連カード追加）',
+        '深掘り',
+        '演習フィードバックへの対応'
+    )
 
-    $current = ''
-    $buf = New-Object System.Text.StringBuilder
-    foreach ($line in $normalized -split "`n") {
-        if ($line -match '^## (.+?)\s*$') {
-            if ($current) {
-                $sections[$current] = $buf.ToString()
-            }
-            $current = $Matches[1].Trim()
-            $buf = New-Object System.Text.StringBuilder
-        } else {
-            if ($current) {
-                [void]$buf.AppendLine($line)
-            }
+    # 既知の見出し名にマッチする位置を全て見つける（## の有無を問わず）
+    # haiku 生成物では改行が潰れているため、行頭 ## だけで判定しない
+    $hits = New-Object System.Collections.ArrayList
+    foreach ($sn in $sectionNames) {
+        $pattern = '##\s*' + [regex]::Escape($sn)
+        foreach ($m in [regex]::Matches($text, $pattern)) {
+            [void]$hits.Add([pscustomobject]@{
+                Name  = $sn
+                Index = $m.Index
+                Len   = $m.Length
+            })
         }
     }
-    if ($current) {
-        $sections[$current] = $buf.ToString()
+
+    if ($hits.Count -eq 0) { return $sections }
+
+    # 開始位置でソート
+    $sorted = $hits | Sort-Object Index
+    # 同一位置に複数マッチした場合（「深掘り」と「深掘り（関連カード追加）」など）は長い方を優先
+    $deduped = New-Object System.Collections.ArrayList
+    $lastIdx = -1
+    foreach ($h in $sorted) {
+        if ($h.Index -eq $lastIdx) {
+            # 直前を長い方に置換
+            $prev = $deduped[$deduped.Count - 1]
+            if ($h.Len -gt $prev.Len) {
+                $deduped[$deduped.Count - 1] = $h
+            }
+        } else {
+            [void]$deduped.Add($h)
+            $lastIdx = $h.Index
+        }
     }
+
+    for ($i = 0; $i -lt $deduped.Count; $i++) {
+        $h = $deduped[$i]
+        $start = $h.Index + $h.Len
+        $end = if ($i + 1 -lt $deduped.Count) { $deduped[$i + 1].Index } else { $text.Length }
+        $body = $text.Substring($start, $end - $start)
+        # 先頭の余分な改行/空白だけ削除
+        $body = $body -replace '^[\r\n]+', ''
+        $sections[$h.Name] = $body
+    }
+
     return $sections
 }
 
