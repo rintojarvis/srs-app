@@ -14,8 +14,15 @@
       <span>残り <strong id="stat-remaining">0</strong></span>
       <span>完了 <strong id="stat-done">0</strong></span>
       <span>総数 <strong id="stat-total">0</strong></span>
+      <span>演習未消化 <strong id="stat-mistakes">0</strong></span>
     </div>
   </header>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tab-btn active" data-tab="review">復習</button>
+    <button class="tab-btn" data-tab="mistake">演習入力</button>
+    <button class="tab-btn" data-tab="proposal">進化提案</button>
+  </nav>
 
   <main class="main" id="main">
     <section id="card-area" class="card-area" aria-live="polite">
@@ -51,6 +58,32 @@
       <h2>今日のキュー完了 🎉</h2>
       <p id="done-message">お疲れさまでした。次回出題予定のカードは下記の通りです。</p>
       <ul id="upcoming" class="upcoming"></ul>
+    </section>
+
+    <section id="mistake-area" class="mistake-area hidden">
+      <h2 class="section-h">演習・答練・模試で間違えたところを登録</h2>
+      <p class="caption">論点キーワード or 自由文で書く。同じ tags / source のカードが優先キューに浮上する。ヒットしない時は AI に新規カード生成を依頼。</p>
+      <div class="mistake-form">
+        <textarea id="mistake-text" rows="3" placeholder="例: 表現の自由の二重の基準論を答案で書けなかった"></textarea>
+        <input id="mistake-tags" type="text" placeholder="関連タグ（カンマ区切り・任意）">
+        <select id="mistake-source">
+          <option value="">関連 source（任意・全カードから選択）</option>
+        </select>
+        <button id="btn-mistake-submit" class="btn-primary btn-big">登録</button>
+        <p id="mistake-flash" class="mistake-flash hidden"></p>
+      </div>
+      <h3 class="section-h-sub">直近の登録</h3>
+      <ul id="mistake-list" class="mistake-list"></ul>
+    </section>
+
+    <section id="proposal-area" class="proposal-area hidden">
+      <h2 class="section-h">進化提案</h2>
+      <p class="caption">提案ファイルは <code>scripts/evolve.ps1</code> を実行すると <code>srs-app/proposals/</code> に生成されます。</p>
+      <div id="proposal-empty" class="proposal-empty">
+        <p>PowerShell から下記を実行してください:</p>
+        <pre><code>pwsh -File scripts\evolve.ps1 -StateFile state.json</code></pre>
+        <p class="caption">state.json はこのアプリのエクスポート JSON を保存したものです。</p>
+      </div>
     </section>
   </main>
 

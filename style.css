@@ -293,6 +293,131 @@ html, body {
   justify-content: center;
 }
 
+.tabbar {
+  display: flex;
+  gap: 0;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 53px;
+  z-index: 9;
+}
+
+.tab-btn {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.tab-btn:hover { color: var(--text); }
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.mistake-area, .proposal-area {
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.section-h {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.section-h-sub {
+  margin: 22px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.mistake-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.mistake-form textarea,
+.mistake-form input[type="text"],
+.mistake-form select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.mistake-form textarea:focus,
+.mistake-form input[type="text"]:focus,
+.mistake-form select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.mistake-form button { align-self: flex-start; }
+
+.mistake-flash {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.mistake-flash.ok    { background: rgba(16, 185, 129, 0.12); color: var(--good); }
+.mistake-flash.warn  { background: rgba(245, 158, 11, 0.14); color: var(--hard); }
+
+.mistake-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mistake-list li {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: var(--bg);
+}
+
+.mistake-list .mistake-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.proposal-empty pre {
+  background: var(--bg);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.proposal-empty code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 @media (max-width: 480px) {
   .grade-row {
     grid-template-columns: repeat(2, 1fr);
@@ -303,4 +428,5 @@ html, body {
   .card-front, .card-back { font-size: 17px; }
   .stats { gap: 8px; font-size: 12px; }
   .app-title { font-size: 16px; }
+  .tab-btn { padding: 10px 12px; font-size: 13px; }
 }

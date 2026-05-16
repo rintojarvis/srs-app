@@ -12,6 +12,7 @@ const f = fsrs(params);
 // ─── State ─────────────────────────────
 let state = {
   cards: [],          // 全カード
+  mistakes: [],       // 演習フィードバック: { id, at, text, tags, source, hit_card_ids, status }
   meta: {
     created_at: null,
     last_updated: null,
@@ -23,6 +24,7 @@ let currentCardId = null;          // 表示中のカード
 let pendingReview = null;          // { rating: null } のような未送信レビューはなし、ボタン押下時即確定
 let selectedCardReview = null;     // ボタン選択中のカード評価ラベル
 let queue = [];                    // 今日処理すべきカード id 配列
+let activeTab = 'review';          // 'review' | 'mistake' | 'proposal'
 
 // ─── DOM ───────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -44,9 +46,19 @@ const el = {
   statRemaining: $('stat-remaining'),
   statDone: $('stat-done'),
   statTotal: $('stat-total'),
+  statMistakes: $('stat-mistakes'),
   btnExport: $('btn-export'),
   fileImport: $('file-import'),
   btnReset: $('btn-reset'),
+  tabbar: $('tabbar'),
+  mistakeArea: $('mistake-area'),
+  proposalArea: $('proposal-area'),
+  mistakeText: $('mistake-text'),
+  mistakeTags: $('mistake-tags'),
+  mistakeSource: $('mistake-source'),
+  btnMistakeSubmit: $('btn-mistake-submit'),
+  mistakeFlash: $('mistake-flash'),
+  mistakeList: $('mistake-list'),
 };
 
 // ─── Storage ───────────────────────────
@@ -76,10 +88,13 @@ async function initState() {
   const saved = loadState();
   if (saved && Array.isArray(saved.cards) && saved.cards.length > 0) {
     state = saved;
+    // migration: 旧 schema に mistakes が無い場合は付与
+    if (!Array.isArray(state.mistakes)) state.mistakes = [];
   } else {
     const cards = await fetchInitialCards();
     state = {
       cards,
+      mistakes: [],
       meta: {
         created_at: new Date().toISOString(),
         last_updated: new Date().toISOString(),
@@ -160,6 +175,170 @@ function updateStats() {
   el.statTotal.textContent = total;
   el.statRemaining.textContent = remaining;
   el.statDone.textContent = done;
+  const openMistakes = (state.mistakes || []).filter(m => m.status === 'open').length;
+  if (el.statMistakes) el.statMistakes.textContent = openMistakes;
+}
+
+// ─── Tabs ──────────────────────────────
+function renderTab(tabName) {
+  activeTab = tabName;
+  // ボタン状態
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName);
+  });
+  // 各セクションの可視性
+  const showReview = tabName === 'review';
+  const showMistake = tabName === 'mistake';
+  const showProposal = tabName === 'proposal';
+
+  // review タブのときだけカード/done を出す。それ以外は両方とも隠す
+  if (showReview) {
+    if (queue.length === 0) {
+      el.cardArea.classList.add('hidden');
+      el.doneArea.classList.remove('hidden');
+    } else {
+      el.cardArea.classList.remove('hidden');
+      el.doneArea.classList.add('hidden');
+    }
+  } else {
+    el.cardArea.classList.add('hidden');
+    el.doneArea.classList.add('hidden');
+  }
+  el.mistakeArea.classList.toggle('hidden', !showMistake);
+  el.proposalArea.classList.toggle('hidden', !showProposal);
+
+  if (showMistake) {
+    refreshMistakeSourceOptions();
+    renderMistakeList();
+  }
+}
+
+// ─── Mistake feedback ─────────────────
+function getUniqueSources() {
+  const set = new Set();
+  for (const c of state.cards) {
+    if (c.source) set.add(c.source);
+  }
+  return [...set].sort();
+}
+
+function refreshMistakeSourceOptions() {
+  if (!el.mistakeSource) return;
+  const current = el.mistakeSource.value;
+  const sources = getUniqueSources();
+  const opts = ['<option value="">関連 source（任意・全カードから選択）</option>']
+    .concat(sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`));
+  el.mistakeSource.innerHTML = opts.join('');
+  if (current) el.mistakeSource.value = current;
+}
+
+function findRelatedCardIds(text, tags, source) {
+  const tagSet = new Set(tags.map(t => t.toLowerCase()).filter(Boolean));
+  const hits = [];
+  for (const c of state.cards) {
+    let match = false;
+    if (source && c.source === source) match = true;
+    if (!match && tagSet.size > 0 && Array.isArray(c.tags)) {
+      if (c.tags.some(t => tagSet.has(String(t).toLowerCase()))) match = true;
+    }
+    if (match) hits.push(c.id);
+  }
+  return hits;
+}
+
+function showMistakeFlash(message, kind) {
+  if (!el.mistakeFlash) return;
+  el.mistakeFlash.textContent = message;
+  el.mistakeFlash.classList.remove('hidden', 'ok', 'warn');
+  el.mistakeFlash.classList.add(kind === 'warn' ? 'warn' : 'ok');
+  setTimeout(() => {
+    el.mistakeFlash.classList.add('hidden');
+  }, 5000);
+}
+
+function renderMistakeList() {
+  if (!el.mistakeList) return;
+  const items = (state.mistakes || []).slice().sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10);
+  if (items.length === 0) {
+    el.mistakeList.innerHTML = '<li><span class="caption">まだ登録はありません。</span></li>';
+    return;
+  }
+  el.mistakeList.innerHTML = items.map(m => {
+    const head = escapeHtml(String(m.text).slice(0, 60));
+    const tail = String(m.text).length > 60 ? '…' : '';
+    const d = new Date(m.at).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const hits = (m.hit_card_ids || []).length;
+    return `<li>
+      <div><strong>${escapeHtml(m.id)}</strong> — ${head}${tail}</div>
+      <div class="mistake-meta">
+        <span>${d}</span>
+        <span>関連カード ${hits} 件</span>
+        <span>${escapeHtml(m.status || 'open')}</span>
+      </div>
+    </li>`;
+  }).join('');
+}
+
+function pushToFrontOfQueue(cardIds) {
+  // 重複排除しつつ、cardIds を先頭に、その後に既存 queue（cardIds に含まれないもの）を続ける
+  const seen = new Set();
+  const next = [];
+  for (const id of cardIds) {
+    if (!seen.has(id) && state.cards.some(c => c.id === id)) {
+      seen.add(id);
+      next.push(id);
+    }
+  }
+  for (const id of queue) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      next.push(id);
+    }
+  }
+  queue = next;
+}
+
+function handleMistakeSubmit() {
+  const text = (el.mistakeText.value || '').trim();
+  const tagsRaw = (el.mistakeTags.value || '').trim();
+  const source = (el.mistakeSource.value || '').trim() || null;
+  if (!text) {
+    showMistakeFlash('テキストを入力してください', 'warn');
+    return;
+  }
+  const tags = tagsRaw ? tagsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const hitIds = findRelatedCardIds(text, tags, source);
+  const entry = {
+    id: 'mistake_' + Date.now(),
+    at: new Date().toISOString(),
+    text,
+    tags,
+    source,
+    hit_card_ids: hitIds,
+    status: 'open'
+  };
+  state.mistakes.push(entry);
+  saveState();
+
+  if (hitIds.length > 0) {
+    pushToFrontOfQueue(hitIds);
+    showMistakeFlash(`登録しました。${hitIds.length} 件のカードを優先キュー先頭に追加しました。`, 'ok');
+    if (activeTab === 'review') {
+      // 現在表示中のカードを優先カードに切替（先頭が変わっているなら）
+      if (queue.length > 0 && queue[0] !== currentCardId) {
+        showCard(queue[0]);
+      }
+    }
+  } else {
+    showMistakeFlash('関連カードなし。次回 evolve.ps1 で AI が新規カード生成を試みます。', 'warn');
+  }
+
+  // フォームクリア
+  el.mistakeText.value = '';
+  el.mistakeTags.value = '';
+  el.mistakeSource.value = '';
+  renderMistakeList();
+  updateStats();
 }
 
 function resetSelections() {
@@ -182,7 +361,9 @@ function showCard(id) {
   el.showArea.classList.remove('hidden');
   el.gradeArea.classList.add('hidden');
   el.doneArea.classList.add('hidden');
-  el.cardArea.classList.remove('hidden');
+  if (activeTab === 'review') {
+    el.cardArea.classList.remove('hidden');
+  }
   resetSelections();
   updateStats();
 }
@@ -195,7 +376,9 @@ function showAnswer() {
 
 function showDone() {
   el.cardArea.classList.add('hidden');
-  el.doneArea.classList.remove('hidden');
+  if (activeTab === 'review') {
+    el.doneArea.classList.remove('hidden');
+  }
   // 直近5枚の次回出題予定
   const upcoming = [...state.cards]
     .sort((a, b) => new Date(a.fsrs.due) - new Date(b.fsrs.due))
@@ -324,9 +507,23 @@ function attachEvents() {
   el.fileImport.addEventListener('change', handleImport);
   el.btnReset.addEventListener('click', handleReset);
 
+  // タブ切替
+  if (el.tabbar) {
+    el.tabbar.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn) return;
+      renderTab(btn.dataset.tab);
+    });
+  }
+  // 演習入力フォーム
+  if (el.btnMistakeSubmit) {
+    el.btnMistakeSubmit.addEventListener('click', handleMistakeSubmit);
+  }
+
   // キーボードショートカット（PC向け）
   document.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (activeTab !== 'review') return;
     if (el.gradeArea.classList.contains('hidden')) {
       if (e.code === 'Space' || e.code === 'Enter') {
         e.preventDefault();
@@ -347,6 +544,7 @@ function attachEvents() {
     await initState();
     buildQueue();
     attachEvents();
+    renderTab('review');
     if (queue.length === 0) {
       updateStats();
       showDone();
