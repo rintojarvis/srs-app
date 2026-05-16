@@ -14,7 +14,7 @@ const f = fsrs(params);
 let state = {
   cards: [],          // 全カード
   mistakes: [],       // 演習フィードバック: { id, at, text, tags, source, hit_card_ids, status }
-  checkins: [],       // 日次チェックイン: { date, subjects, topic, progress, sources, at }
+  checkins: [],       // 日次チェックイン: { date, calendar_confirmations, manual_entries, at, ... 旧フィールド互換 }
   imported_sources: [], // ローカルにキャッシュした最近のソース一覧（imported_sources.json と同期）
   meta: {
     created_at: null,
@@ -22,6 +22,26 @@ let state = {
     schema_version: 1
   }
 };
+
+// ─── 9 科目の確定リスト ─────────────────
+const SUBJECTS = ['憲法', '民法', '刑法', '商法', '民事訴訟法', '刑事訴訟法', '行政法', '倒産法', '法学入門'];
+
+// カレンダー summary → subject 推定マップ
+function detectSubjectFromSummary(summary) {
+  const s = String(summary || '');
+  if (!s) return null;
+  // 順序重要: より長い・より具体的なものを先に
+  if (/民事訴訟法|民訴/.test(s)) return '民事訴訟法';
+  if (/刑事訴訟法|刑訴/.test(s)) return '刑事訴訟法';
+  if (/憲法入門|憲法/.test(s)) return '憲法';
+  if (/民法入門|物権|債権|民法/.test(s)) return '民法';
+  if (/刑法入門|刑法/.test(s)) return '刑法';
+  if (/行政法/.test(s)) return '行政法';
+  if (/商法|会社法/.test(s)) return '商法';
+  if (/倒産法|破産|民事再生/.test(s)) return '倒産法';
+  if (/法学入門/.test(s)) return '法学入門';
+  return null;
+}
 
 let currentCardId = null;          // 表示中のカード
 let pendingReview = null;          // { rating: null } のような未送信レビューはなし、ボタン押下時即確定
@@ -63,14 +83,16 @@ const el = {
   mistakeFlash: $('mistake-flash'),
   mistakeList: $('mistake-list'),
   checkinModal: $('checkin-modal'),
-  checkinTopic: $('checkin-topic'),
-  checkinProgress: $('checkin-progress'),
-  checkinSourceList: $('checkin-source-list'),
   btnCheckinSubmit: $('btn-checkin-submit'),
   btnCheckinSkip: $('btn-checkin-skip'),
   btnOpenCheckin: $('btn-open-checkin'),
   btnFetchToday: $('btn-fetch-today'),
   checkinFetchFlash: $('checkin-fetch-flash'),
+  calendarEventsList: $('calendar-events-list'),
+  calendarEventsEmpty: $('calendar-events-empty'),
+  manualEntries: $('manual-entries'),
+  btnAddManualEntry: $('btn-add-manual-entry'),
+  tplManualEntry: $('tpl-manual-entry'),
 };
 
 // ─── Storage ───────────────────────────
@@ -158,33 +180,81 @@ function getTodayCheckin() {
   return state.checkins.find(c => c.date === today) || null;
 }
 
-function cardMatchesCheckin(card, checkin) {
-  if (!checkin) return false;
-  const subjects = Array.isArray(checkin.subjects) ? checkin.subjects : [];
-  const sources = Array.isArray(checkin.sources) ? checkin.sources : [];
-  const topic = (checkin.topic || '').trim();
+// 新スキーマと旧スキーマの両対応で「優先する subjects / topics / sources」を集約
+function deriveCheckinSignals(checkin) {
+  if (!checkin) return { subjects: [], topics: [], sources: [], itojuku: false };
+  const subjects = new Set();
+  const topics = [];
+  const sources = new Set();
+  let itojuku = false;
 
-  // 科目タグ交差
-  if (subjects.length > 0 && Array.isArray(card.tags)) {
-    for (const s of subjects) {
-      if (!s) continue;
-      if (card.tags.some(t => String(t).includes(s))) return true;
+  // 新スキーマ: calendar_confirmations[]
+  if (Array.isArray(checkin.calendar_confirmations)) {
+    for (const cc of checkin.calendar_confirmations) {
+      if (!cc) continue;
+      if (cc.user_status === 'absent') continue; // 欠席はキューに反映しない
+      if (cc.detected_subject) subjects.add(cc.detected_subject);
+      if (cc.user_status === 'drifted' && cc.actual_topic) topics.push(cc.actual_topic);
     }
   }
-  // ソース完全一致
-  if (sources.length > 0 && card.source) {
-    if (sources.includes(card.source)) return true;
+  // 新スキーマ: manual_entries[]
+  if (Array.isArray(checkin.manual_entries)) {
+    for (const me of checkin.manual_entries) {
+      if (!me) continue;
+      if (Array.isArray(me.subjects)) for (const s of me.subjects) if (s) subjects.add(s);
+      if (me.topic) topics.push(me.topic);
+      if (me.source === 'itojuku') itojuku = true;
+    }
   }
-  // トピック単語の部分一致（2文字以上のトークンのみ・全文は無視して粗くマッチ）
-  if (topic.length >= 2) {
-    const tokens = topic.split(/[\s、,，・/]+/).map(s => s.trim()).filter(s => s.length >= 2);
+  // 旧スキーマ fallback
+  if (subjects.size === 0 && Array.isArray(checkin.subjects)) {
+    for (const s of checkin.subjects) if (s) subjects.add(s);
+  }
+  if (topics.length === 0 && typeof checkin.topic === 'string' && checkin.topic.trim()) {
+    topics.push(checkin.topic.trim());
+  }
+  if (Array.isArray(checkin.sources)) for (const s of checkin.sources) if (s) sources.add(s);
+
+  return { subjects: [...subjects], topics, sources: [...sources], itojuku };
+}
+
+function cardMatchesCheckin(card, checkin) {
+  if (!checkin) return false;
+  const sig = deriveCheckinSignals(checkin);
+
+  // 科目タグ交差
+  if (sig.subjects.length > 0 && Array.isArray(card.tags)) {
+    for (const s of sig.subjects) {
+      if (!s) continue;
+      // 「民事訴訟法」⇔「民訴」両対応
+      const alts = [s];
+      if (s === '民事訴訟法') alts.push('民訴');
+      if (s === '刑事訴訟法') alts.push('刑訴');
+      for (const alt of alts) {
+        if (card.tags.some(t => String(t).includes(alt))) return true;
+      }
+    }
+  }
+  // ソース完全一致（旧フィールド）
+  if (sig.sources.length > 0 && card.source) {
+    if (sig.sources.includes(card.source)) return true;
+  }
+  // 伊藤塾フラグ: card.source が「伊藤塾」を含むものを優先
+  if (sig.itojuku && card.source && String(card.source).includes('伊藤塾')) {
+    return true;
+  }
+  // トピック単語の部分一致（2文字以上のトークン）
+  if (sig.topics.length > 0) {
     const haystack = [
       card.front || '',
       card.back || '',
       ...(Array.isArray(card.tags) ? card.tags : [])
     ].join(' ');
-    for (const tok of tokens) {
-      if (haystack.includes(tok)) return true;
+    for (const topic of sig.topics) {
+      const tokens = String(topic).split(/[\s、,，・/]+/).map(s => s.trim()).filter(s => s.length >= 2);
+      for (const tok of tokens) {
+        if (haystack.includes(tok)) return true;
+      }
     }
   }
   return false;
@@ -599,41 +669,122 @@ async function handleReset() {
 }
 
 // ─── Daily Check-in ────────────────────
-function renderCheckinSourceList() {
-  if (!el.checkinSourceList) return;
-  const sources = Array.isArray(state.imported_sources) ? state.imported_sources : [];
-  if (sources.length === 0) {
-    el.checkinSourceList.innerHTML = '<li><span class="caption">最近インポートされたソースはありません。</span></li>';
+// カレンダーから取得した「今日の授業イベント」のキャッシュ
+let todayClassEvents = []; // [{ summary, start, detected_subject }]
+
+async function loadTodayCalendarEvents() {
+  try {
+    const res = await fetch('./today.json', { cache: 'no-store' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const events = Array.isArray(data && data.events) ? data.events : [];
+    // 授業っぽいものだけフィルタ
+    const classes = [];
+    for (const ev of events) {
+      const summary = String((ev && ev.summary) || '').trim();
+      if (!summary) continue;
+      const subj = detectSubjectFromSummary(summary);
+      if (!subj) continue;
+      classes.push({
+        summary,
+        start: (ev && ev.start) || '',
+        detected_subject: subj
+      });
+    }
+    return classes;
+  } catch (e) {
+    return [];
+  }
+}
+
+function renderCalendarEventsList() {
+  if (!el.calendarEventsList) return;
+  el.calendarEventsList.innerHTML = '';
+  if (todayClassEvents.length === 0) {
+    if (el.calendarEventsEmpty) el.calendarEventsEmpty.classList.remove('hidden');
     return;
   }
-  // 最新順 5 件
-  const recent = [...sources]
-    .sort((a, b) => String(b.imported_at || '').localeCompare(String(a.imported_at || '')))
-    .slice(0, 5);
-  el.checkinSourceList.innerHTML = recent.map((s, idx) => {
-    const basename = escapeHtml(s.basename || s.path || `source_${idx}`);
-    const subject = s.subject ? `<span class="src-meta">${escapeHtml(s.subject)}</span>` : '';
-    const count = (typeof s.card_count === 'number') ? `<span class="src-meta">${s.card_count} 枚</span>` : '';
-    const val = escapeHtml(s.basename || s.path || '');
-    return `<li>
-      <label>
-        <input type="checkbox" class="checkin-source-chk" value="${val}">
-        <span>
-          <strong>${basename}</strong>
-          ${subject} ${count}
-        </span>
-      </label>
-    </li>`;
-  }).join('');
+  if (el.calendarEventsEmpty) el.calendarEventsEmpty.classList.add('hidden');
+
+  for (let i = 0; i < todayClassEvents.length; i++) {
+    const ev = todayClassEvents[i];
+    const li = document.createElement('li');
+    li.className = 'calendar-event';
+    li.dataset.idx = String(i);
+
+    const head = document.createElement('div');
+    head.className = 'calendar-event-head';
+    head.innerHTML = `<strong>${escapeHtml(ev.summary)}</strong>` +
+      `<span class="src-meta">${escapeHtml(ev.detected_subject)}</span>` +
+      (ev.start ? `<span class="src-meta">${escapeHtml(ev.start)}</span>` : '');
+    li.appendChild(head);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'calendar-event-btns';
+    btnRow.innerHTML = `
+      <button type="button" class="calendar-event-btn" data-status="confirmed">✓ 合ってる</button>
+      <button type="button" class="calendar-event-btn" data-status="drifted">⚠️ ずれてる</button>
+      <button type="button" class="calendar-event-btn" data-status="absent">✗ 欠席</button>
+    `;
+    li.appendChild(btnRow);
+
+    const drift = document.createElement('div');
+    drift.className = 'calendar-event-drift hidden';
+    drift.innerHTML = `<input type="text" class="calendar-event-actual" placeholder="実際の範囲・トピック（例: 表現の自由②各論まで）">`;
+    li.appendChild(drift);
+
+    // ボタンハンドラ
+    btnRow.querySelectorAll('.calendar-event-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const status = btn.dataset.status;
+        btnRow.querySelectorAll('.calendar-event-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        li.dataset.status = status;
+        drift.classList.toggle('hidden', status !== 'drifted');
+      });
+    });
+
+    el.calendarEventsList.appendChild(li);
+  }
+}
+
+function clearManualEntries() {
+  if (el.manualEntries) el.manualEntries.innerHTML = '';
+}
+
+function addManualEntry() {
+  if (!el.manualEntries || !el.tplManualEntry) return;
+  const frag = el.tplManualEntry.content.cloneNode(true);
+  const entry = frag.querySelector('.manual-entry');
+
+  // ソース切替で「コース」表示制御
+  const courseRow = entry.querySelector('.manual-entry-course-row');
+  const updateCourseVisibility = () => {
+    const checked = entry.querySelector('input[type="radio"][name="src"]:checked');
+    const val = checked ? checked.value : 'itojuku';
+    courseRow.classList.toggle('hidden', val !== 'itojuku');
+  };
+  entry.querySelectorAll('input[type="radio"][name="src"]').forEach(r => {
+    r.addEventListener('change', updateCourseVisibility);
+  });
+  updateCourseVisibility();
+
+  // 削除ボタン
+  const removeBtn = entry.querySelector('.manual-entry-remove');
+  removeBtn.addEventListener('click', () => entry.remove());
+
+  el.manualEntries.appendChild(frag);
 }
 
 function openCheckinModal() {
   if (!el.checkinModal || typeof el.checkinModal.showModal !== 'function') return;
-  // 念のためフォームをクリア
-  document.querySelectorAll('.checkin-subjects input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-  if (el.checkinTopic) el.checkinTopic.value = '';
-  if (el.checkinProgress) el.checkinProgress.value = '';
-  renderCheckinSourceList();
+  // カレンダー読込 → 描画
+  loadTodayCalendarEvents().then(events => {
+    todayClassEvents = events;
+    renderCalendarEventsList();
+  });
+  // manual entries クリア
+  clearManualEntries();
   el.checkinModal.showModal();
 }
 
@@ -641,18 +792,78 @@ function closeCheckinModal() {
   if (el.checkinModal && el.checkinModal.open) el.checkinModal.close();
 }
 
+function gatherCalendarConfirmations() {
+  const out = [];
+  if (!el.calendarEventsList) return out;
+  const items = el.calendarEventsList.querySelectorAll('.calendar-event');
+  items.forEach(li => {
+    const idx = parseInt(li.dataset.idx, 10);
+    const ev = todayClassEvents[idx];
+    if (!ev) return;
+    const status = li.dataset.status;
+    if (!status) return; // 未選択は記録しない
+    const entry = {
+      calendar_summary: ev.summary,
+      start: ev.start || '',
+      detected_subject: ev.detected_subject,
+      user_status: status
+    };
+    if (status === 'drifted') {
+      const input = li.querySelector('.calendar-event-actual');
+      if (input && input.value.trim()) entry.actual_topic = input.value.trim();
+    }
+    out.push(entry);
+  });
+  return out;
+}
+
+function gatherManualEntries() {
+  const out = [];
+  if (!el.manualEntries) return out;
+  el.manualEntries.querySelectorAll('.manual-entry').forEach(entry => {
+    const subjects = [...entry.querySelectorAll('.manual-entry-subjects input[type="checkbox"]:checked')].map(cb => cb.value);
+    const srcRadio = entry.querySelector('input[type="radio"][name="src"]:checked');
+    const source = srcRadio ? srcRadio.value : 'itojuku';
+    const topicInput = entry.querySelector('.manual-entry-topic-input');
+    const topic = topicInput ? topicInput.value.trim() : '';
+    const courseSel = entry.querySelector('.manual-entry-course');
+    const course = (source === 'itojuku' && courseSel) ? courseSel.value : null;
+
+    // 完全空エントリは捨てる
+    if (subjects.length === 0 && !topic) return;
+    const obj = { subjects, source, topic };
+    if (course) obj.course = course;
+    out.push(obj);
+  });
+  return out;
+}
+
 function gatherCheckinForm() {
-  const subjects = [...document.querySelectorAll('.checkin-subjects input[type="checkbox"]:checked')]
-    .map(cb => cb.value);
-  const sources = [...document.querySelectorAll('.checkin-source-chk:checked')]
-    .map(cb => cb.value);
+  const calendar_confirmations = gatherCalendarConfirmations();
+  const manual_entries = gatherManualEntries();
+
+  // 旧フィールドも互換のため一緒に詰める
+  const legacySubjects = new Set();
+  const legacyTopics = [];
+  for (const cc of calendar_confirmations) {
+    if (cc.user_status !== 'absent' && cc.detected_subject) legacySubjects.add(cc.detected_subject);
+    if (cc.actual_topic) legacyTopics.push(cc.actual_topic);
+  }
+  for (const me of manual_entries) {
+    if (Array.isArray(me.subjects)) me.subjects.forEach(s => legacySubjects.add(s));
+    if (me.topic) legacyTopics.push(me.topic);
+  }
+
   return {
     date: todayDateStr(),
-    subjects,
-    topic: (el.checkinTopic && el.checkinTopic.value || '').trim(),
-    progress: (el.checkinProgress && el.checkinProgress.value || '').trim(),
-    sources,
-    at: new Date().toISOString()
+    at: new Date().toISOString(),
+    calendar_confirmations,
+    manual_entries,
+    // 後方互換
+    subjects: [...legacySubjects],
+    topic: legacyTopics.join('; '),
+    progress: '',
+    sources: []
   };
 }
 
@@ -688,10 +899,6 @@ function handleOpenCheckin() {
 }
 
 // ─── Calendar Integration (today.json) ────
-const SUBJECT_KEYWORDS = [
-  '憲法', '民法入門演習', '民事訴訟法入門', '民法', '民訴', '刑事訴訟法', '刑訴',
-  '刑法', '行政法', '商法', '法学入門演習', '法学入門', '伊藤塾', 'アメリカ法'
-];
 
 function showCheckinFetchFlash(message, kind) {
   if (!el.checkinFetchFlash) return;
@@ -703,54 +910,32 @@ function showCheckinFetchFlash(message, kind) {
   }, 5000);
 }
 
-function checkSubjectCheckboxesByText(text) {
-  const checkboxes = document.querySelectorAll('.checkin-subjects input[type="checkbox"]');
-  // value（例: "憲法", "民法", "民訴"...）と SUBJECT_KEYWORDS のうち、text に部分一致するものを ON
-  for (const cb of checkboxes) {
-    const v = cb.value;
-    if (!v) continue;
-    // value 自体が text に含まれていれば ON
-    if (text.includes(v)) {
-      cb.checked = true;
-      continue;
-    }
-    // 派生キーワードチェック（例: "民事訴訟法" → "民訴", "刑事訴訟法" → "刑訴"）
-    if (v === '民訴' && (text.includes('民事訴訟') || text.includes('民訴'))) { cb.checked = true; continue; }
-    if (v === '刑訴' && (text.includes('刑事訴訟') || text.includes('刑訴'))) { cb.checked = true; continue; }
-  }
-}
-
 async function handleFetchToday() {
   try {
-    const res = await fetch('./today.json', { cache: 'no-store' });
-    if (!res.ok) throw new Error('fetch failed: ' + res.status);
-    const data = await res.json();
-    const events = Array.isArray(data && data.events) ? data.events : [];
+    const events = await loadTodayCalendarEvents();
+    todayClassEvents = events;
+    renderCalendarEventsList();
     if (events.length === 0) {
-      showCheckinFetchFlash('今日の予定はありません。', 'warn');
-      return;
+      showCheckinFetchFlash('今日カレンダーに授業の予定はありません。', 'warn');
+    } else {
+      showCheckinFetchFlash(`${events.length} 件の授業を取得しました`, 'ok');
     }
-    // 各 event.summary から科目を判定してチェック
-    const combinedText = events.map(e => String(e && e.summary || '')).join(' ');
-    checkSubjectCheckboxesByText(combinedText);
-    // summary を ; 区切りで topic 欄に入れる
-    const summaries = events.map(e => String(e && e.summary || '').trim()).filter(Boolean);
-    if (el.checkinTopic) el.checkinTopic.value = summaries.join('; ');
-    showCheckinFetchFlash(`${events.length}件の予定から取得しました`, 'ok');
   } catch (err) {
-    alert('今日のカレンダー情報が見つかりません。scripts/refresh_today.ps1 を実行してください。');
+    showCheckinFetchFlash('カレンダー情報の取得に失敗しました。', 'warn');
   }
 }
 
 function handleCheckinSkip() {
-  // 空エントリ（subjects: [], sources: []）を記録 → 当日もう聞かない
+  // 空エントリ（calendar_confirmations: [], manual_entries: []）を記録 → 当日もう聞かない
   const entry = {
     date: todayDateStr(),
+    at: new Date().toISOString(),
+    calendar_confirmations: [],
+    manual_entries: [],
     subjects: [],
     topic: '',
     progress: '',
-    sources: [],
-    at: new Date().toISOString()
+    sources: []
   };
   recordCheckin(entry);
   closeCheckinModal();
@@ -794,6 +979,7 @@ function attachEvents() {
   if (el.btnCheckinSkip) el.btnCheckinSkip.addEventListener('click', handleCheckinSkip);
   if (el.btnOpenCheckin) el.btnOpenCheckin.addEventListener('click', handleOpenCheckin);
   if (el.btnFetchToday) el.btnFetchToday.addEventListener('click', handleFetchToday);
+  if (el.btnAddManualEntry) el.btnAddManualEntry.addEventListener('click', addManualEntry);
 
   // キーボードショートカット（PC向け）
   document.addEventListener('keydown', (e) => {

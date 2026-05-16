@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f2937">
   <title>SRS暗記アプリ</title>
-  <link rel="stylesheet" href="./style.css?v=20260516a">
+  <link rel="stylesheet" href="./style.css?v=20260516b">
   <link rel="manifest" href="./manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -16,39 +16,24 @@
   <dialog id="checkin-modal" class="checkin-modal">
     <form method="dialog">
       <h2>今日の学習内容</h2>
-      <p class="caption">今日授業を受けた科目・読んだ教材を教えてください。優先キューに反映します。</p>
+      <p class="caption checkin-intro">最初の頃は手動で「これで合ってる？」を答えてください。回数を重ねるとカレンダーから自動推定できるようになります（学習データを蓄積中）。</p>
 
-      <fieldset class="checkin-subjects">
-        <legend>科目（複数選択可）</legend>
-        <label><input type="checkbox" value="憲法"> 憲法</label>
-        <label><input type="checkbox" value="民法"> 民法</label>
-        <label><input type="checkbox" value="民訴"> 民事訴訟法</label>
-        <label><input type="checkbox" value="刑法"> 刑法</label>
-        <label><input type="checkbox" value="刑訴"> 刑事訴訟法</label>
-        <label><input type="checkbox" value="行政法"> 行政法</label>
-        <label><input type="checkbox" value="商法"> 商法</label>
-        <label><input type="checkbox" value="伊藤塾"> 伊藤塾</label>
-        <label><input type="checkbox" value="法学入門"> 法学入門</label>
-      </fieldset>
+      <section class="checkin-section">
+        <h3 class="checkin-section-h">📅 今日の予定</h3>
+        <div class="checkin-fetch-row">
+          <button id="btn-fetch-today" type="button" class="btn-foot">🔄 今日の予定を再取得</button>
+          <p id="checkin-fetch-flash" class="mistake-flash hidden"></p>
+        </div>
+        <ul id="calendar-events-list" class="calendar-events-list"></ul>
+        <p id="calendar-events-empty" class="caption hidden">今日カレンダーに授業の予定はありません。</p>
+      </section>
 
-      <label class="checkin-field">範囲・トピック（自由記述）
-        <input id="checkin-topic" type="text" placeholder="例: 表現の自由②各論 / 正当防衛 / 第5回まで">
-      </label>
-
-      <label class="checkin-field">進度メモ（任意）
-        <input id="checkin-progress" type="text" placeholder="例: 第6回の予定だったが第5回までしか進まなかった">
-      </label>
-
-      <div class="checkin-fetch-row">
-        <button id="btn-fetch-today" type="button" class="btn-foot">📅 今日の予定から自動入力</button>
-        <p id="checkin-fetch-flash" class="mistake-flash hidden"></p>
-      </div>
-
-      <div id="checkin-sources" class="checkin-sources">
-        <h3>最近インポートされたソース</h3>
-        <ul id="checkin-source-list"></ul>
-        <p class="caption">該当するソースがあればクリックして今日の学習に紐付け（複数可）。</p>
-      </div>
+      <section class="checkin-section">
+        <h3 class="checkin-section-h">➕ 追加で学習したもの</h3>
+        <p class="caption">授業以外（伊藤塾・自習・六法素読など）を追加できます。複数可。</p>
+        <div id="manual-entries" class="manual-entries"></div>
+        <button id="btn-add-manual-entry" type="button" class="btn-foot btn-add-entry">+ 学習を追加</button>
+      </section>
 
       <menu class="checkin-menu">
         <button id="btn-checkin-skip" type="button" class="btn-foot">スキップ（通常キュー）</button>
@@ -56,6 +41,43 @@
       </menu>
     </form>
   </dialog>
+
+  <template id="tpl-manual-entry">
+    <div class="manual-entry">
+      <button type="button" class="manual-entry-remove" title="削除">×</button>
+      <fieldset class="manual-entry-subjects">
+        <legend>科目（複数選択可）</legend>
+        <label><input type="checkbox" value="憲法"> 憲法</label>
+        <label><input type="checkbox" value="民法"> 民法</label>
+        <label><input type="checkbox" value="刑法"> 刑法</label>
+        <label><input type="checkbox" value="商法"> 商法</label>
+        <label><input type="checkbox" value="民事訴訟法"> 民事訴訟法</label>
+        <label><input type="checkbox" value="刑事訴訟法"> 刑事訴訟法</label>
+        <label><input type="checkbox" value="行政法"> 行政法</label>
+        <label><input type="checkbox" value="倒産法"> 倒産法</label>
+        <label><input type="checkbox" value="法学入門"> 法学入門</label>
+      </fieldset>
+      <fieldset class="manual-entry-source">
+        <legend>ソース</legend>
+        <label><input type="radio" name="src" value="law-school"> 法科大学院</label>
+        <label><input type="radio" name="src" value="itojuku" checked> 伊藤塾</label>
+        <label><input type="radio" name="src" value="other"> その他</label>
+      </fieldset>
+      <label class="manual-entry-course-row hidden">コース
+        <select class="manual-entry-course">
+          <option value="基礎マスター">基礎マスター</option>
+          <option value="論述マスター" selected>論述マスター</option>
+          <option value="短答マスター">短答マスター</option>
+          <option value="過去問">過去問</option>
+          <option value="答練">答練</option>
+          <option value="その他">その他</option>
+        </select>
+      </label>
+      <label class="manual-entry-topic">内容（自由記述）
+        <input type="text" class="manual-entry-topic-input" placeholder="例: 正当防衛 防御の意思 / 第5回まで">
+      </label>
+    </div>
+  </template>
 
   <header class="topbar">
     <h1 class="app-title">SRS暗記アプリ</h1>
@@ -148,7 +170,7 @@
     <button class="btn-foot btn-danger" id="btn-reset">リセット</button>
   </footer>
 
-  <script type="module" src="./app.js?v=20260516a"></script>
+  <script type="module" src="./app.js?v=20260516b"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
