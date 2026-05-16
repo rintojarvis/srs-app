@@ -1,0 +1,8 @@
+name = "srs-app-sync"
+main = "worker.js"
+compatibility_date = "2026-05-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "srs-app"
+database_id = "TODO_AFTER_WRANGLER_D1_CREATE"

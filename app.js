@@ -682,6 +682,66 @@ function handleCheckinSubmit() {
   rebuildAndShow();
 }
 
+function handleOpenCheckin() {
+  // トップバーの「📝 今日の学習を入力」ボタン。当日エントリの有無に関わらず必ず開く
+  openCheckinModal();
+}
+
+// ─── Calendar Integration (today.json) ────
+const SUBJECT_KEYWORDS = [
+  '憲法', '民法入門演習', '民事訴訟法入門', '民法', '民訴', '刑事訴訟法', '刑訴',
+  '刑法', '行政法', '商法', '法学入門演習', '法学入門', '伊藤塾', 'アメリカ法'
+];
+
+function showCheckinFetchFlash(message, kind) {
+  if (!el.checkinFetchFlash) return;
+  el.checkinFetchFlash.textContent = message;
+  el.checkinFetchFlash.classList.remove('hidden', 'ok', 'warn');
+  el.checkinFetchFlash.classList.add(kind === 'warn' ? 'warn' : 'ok');
+  setTimeout(() => {
+    if (el.checkinFetchFlash) el.checkinFetchFlash.classList.add('hidden');
+  }, 5000);
+}
+
+function checkSubjectCheckboxesByText(text) {
+  const checkboxes = document.querySelectorAll('.checkin-subjects input[type="checkbox"]');
+  // value（例: "憲法", "民法", "民訴"...）と SUBJECT_KEYWORDS のうち、text に部分一致するものを ON
+  for (const cb of checkboxes) {
+    const v = cb.value;
+    if (!v) continue;
+    // value 自体が text に含まれていれば ON
+    if (text.includes(v)) {
+      cb.checked = true;
+      continue;
+    }
+    // 派生キーワードチェック（例: "民事訴訟法" → "民訴", "刑事訴訟法" → "刑訴"）
+    if (v === '民訴' && (text.includes('民事訴訟') || text.includes('民訴'))) { cb.checked = true; continue; }
+    if (v === '刑訴' && (text.includes('刑事訴訟') || text.includes('刑訴'))) { cb.checked = true; continue; }
+  }
+}
+
+async function handleFetchToday() {
+  try {
+    const res = await fetch('./today.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('fetch failed: ' + res.status);
+    const data = await res.json();
+    const events = Array.isArray(data && data.events) ? data.events : [];
+    if (events.length === 0) {
+      showCheckinFetchFlash('今日の予定はありません。', 'warn');
+      return;
+    }
+    // 各 event.summary から科目を判定してチェック
+    const combinedText = events.map(e => String(e && e.summary || '')).join(' ');
+    checkSubjectCheckboxesByText(combinedText);
+    // summary を ; 区切りで topic 欄に入れる
+    const summaries = events.map(e => String(e && e.summary || '').trim()).filter(Boolean);
+    if (el.checkinTopic) el.checkinTopic.value = summaries.join('; ');
+    showCheckinFetchFlash(`${events.length}件の予定から取得しました`, 'ok');
+  } catch (err) {
+    alert('今日のカレンダー情報が見つかりません。scripts/refresh_today.ps1 を実行してください。');
+  }
+}
+
 function handleCheckinSkip() {
   // 空エントリ（subjects: [], sources: []）を記録 → 当日もう聞かない
   const entry = {
@@ -732,6 +792,8 @@ function attachEvents() {
   // チェックインモーダル
   if (el.btnCheckinSubmit) el.btnCheckinSubmit.addEventListener('click', handleCheckinSubmit);
   if (el.btnCheckinSkip) el.btnCheckinSkip.addEventListener('click', handleCheckinSkip);
+  if (el.btnOpenCheckin) el.btnOpenCheckin.addEventListener('click', handleOpenCheckin);
+  if (el.btnFetchToday) el.btnFetchToday.addEventListener('click', handleFetchToday);
 
   // キーボードショートカット（PC向け）
   document.addEventListener('keydown', (e) => {
