@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f2937">
   <title>SRS暗記アプリ</title>
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=20260516a">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SRS">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
 </head>
 <body>
   <dialog id="checkin-modal" class="checkin-modal">
@@ -34,6 +39,11 @@
         <input id="checkin-progress" type="text" placeholder="例: 第6回の予定だったが第5回までしか進まなかった">
       </label>
 
+      <div class="checkin-fetch-row">
+        <button id="btn-fetch-today" type="button" class="btn-foot">📅 今日の予定から自動入力</button>
+        <p id="checkin-fetch-flash" class="mistake-flash hidden"></p>
+      </div>
+
       <div id="checkin-sources" class="checkin-sources">
         <h3>最近インポートされたソース</h3>
         <ul id="checkin-source-list"></ul>
@@ -49,11 +59,14 @@
 
   <header class="topbar">
     <h1 class="app-title">SRS暗記アプリ</h1>
-    <div class="stats" id="stats">
-      <span>残り <strong id="stat-remaining">0</strong></span>
-      <span>完了 <strong id="stat-done">0</strong></span>
-      <span>総数 <strong id="stat-total">0</strong></span>
-      <span>演習未消化 <strong id="stat-mistakes">0</strong></span>
+    <div class="topbar-actions">
+      <button id="btn-open-checkin" type="button" class="btn-foot btn-checkin-open">📝 今日の学習を入力</button>
+      <div class="stats" id="stats">
+        <span>残り <strong id="stat-remaining">0</strong></span>
+        <span>完了 <strong id="stat-done">0</strong></span>
+        <span>総数 <strong id="stat-total">0</strong></span>
+        <span>演習未消化 <strong id="stat-mistakes">0</strong></span>
+      </div>
     </div>
   </header>
 
@@ -135,6 +148,13 @@
     <button class="btn-foot btn-danger" id="btn-reset">リセット</button>
   </footer>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=20260516a"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.error('SW register failed:', err));
+      });
+    }
+  </script>
 </body>
 </html>

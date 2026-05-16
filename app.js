@@ -68,6 +68,9 @@ const el = {
   checkinSourceList: $('checkin-source-list'),
   btnCheckinSubmit: $('btn-checkin-submit'),
   btnCheckinSkip: $('btn-checkin-skip'),
+  btnOpenCheckin: $('btn-open-checkin'),
+  btnFetchToday: $('btn-fetch-today'),
+  checkinFetchFlash: $('checkin-fetch-flash'),
 };
 
 // ─── Storage ───────────────────────────
@@ -135,7 +138,8 @@ async function initState() {
     };
     saveState();
   }
-  // 最新の imported_sources.json をバックグラウンドで読み込む（存在しなくても無視）
+  // 最新の imported_sources.json を必ず再フェッチして localStorage を更新する
+  // （saved 経由でも初回でも、毎回再取得することで「最近のソース」が常に最新になる）
   await refreshImportedSources();
 }
 
