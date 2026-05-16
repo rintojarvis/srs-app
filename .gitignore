@@ -1,0 +1,15 @@
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+scripts/*.log
+
+# Backups（プライベートな学習履歴を含むためコミットしない）
+backups/
+
+# Service role キー等の secrets（万が一作成された場合用）
+.env
+.env.local
+supabase/service_role.txt
