@@ -1,0 +1,99 @@
+-- =====================================================================
+-- SRS App: Initial data migration (placeholder)
+-- =====================================================================
+-- このファイルは PLACEHOLDER です。
+-- 実 INSERT 文は別ターンで生成スクリプトを書いて流し込みます。
+--
+-- 生成元:
+--   - srs-app/cards.json            -> cards
+--   - srs-app/imported_sources.json -> imported_sources
+--   - srs-app/today.json            -> today_events
+--
+-- 既存 JSON ファイル内の review_history は cards.review_history[] に
+-- 埋め込まれているので、ここから review_history テーブルに展開する。
+--
+-- 流れ:
+--   1) Supabase Auth で rinto 用のユーザーを作成、UUID を控える
+--   2) 下記 :user_id を置換、または psql -v user_id=... で渡す
+--   3) scripts/export_to_supabase_sql.ps1 (後続作成予定) が
+--      cards.json を読んで INSERT 文を吐く -> ここに append
+--   4) psql 経由 or Supabase SQL Editor で実行
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 想定する INSERT パターン（生成スクリプトが量産する形）
+-- ---------------------------------------------------------------------
+
+-- cards 例:
+-- insert into cards (id, front, back, tags, source, linked_cards, fsrs, user_id)
+-- values (
+--   'card_001',
+--   $$内容規制と内容中立規制はどのように区別され、…$$,
+--   $$内容規制：…$$,
+--   '["憲法","表現の自由","各論","審査基準"]'::jsonb,
+--   '予習課題_第4回_表現の自由②各論_改訂版.md',
+--   '[]'::jsonb,
+--   '{"due":"2026-05-15","stability":0,"difficulty":0,"elapsed_days":0,"scheduled_days":0,"reps":0,"lapses":0,"state":0,"last_review":null}'::jsonb,
+--   :user_id
+-- )
+-- on conflict (id) do update set
+--   front        = excluded.front,
+--   back         = excluded.back,
+--   tags         = excluded.tags,
+--   source       = excluded.source,
+--   linked_cards = excluded.linked_cards,
+--   fsrs         = excluded.fsrs;
+
+-- review_history 例（cards.json の review_history[] を展開）:
+-- insert into review_history (card_id, at, rating, card_review, comment, device, user_id)
+-- values ('card_001', '2026-05-14T10:23:00+09:00', 'good', null, null, 'pc', :user_id);
+
+-- mistakes 例（既存ファイルがあれば）:
+-- insert into mistakes (id, at, text, tags, source, hit_card_ids, status, user_id)
+-- values (
+--   'mistake_001',
+--   '2026-05-14T12:00:00+09:00',
+--   $$演習で間違えた内容…$$,
+--   '["憲法"]'::jsonb,
+--   null,
+--   '["card_001"]'::jsonb,
+--   'open',
+--   :user_id
+-- )
+-- on conflict (id) do update set
+--   text         = excluded.text,
+--   tags         = excluded.tags,
+--   hit_card_ids = excluded.hit_card_ids,
+--   status       = excluded.status;
+
+-- imported_sources 例:
+-- insert into imported_sources (path, basename, subject, imported_at, card_count, card_ids, user_id)
+-- values (
+--   'C:\\Users\\rinto\\マイドライブ\\…\\予習課題_第3回_表現の自由①総論_改訂版.md',
+--   '予習課題_第3回_表現の自由①総論_改訂版.md',
+--   '憲法',
+--   '2026-05-16T18:03:57.491+09:00',
+--   22,
+--   '["card_031","card_032"]'::jsonb,
+--   :user_id
+-- )
+-- on conflict (path) do update set
+--   basename    = excluded.basename,
+--   subject     = excluded.subject,
+--   imported_at = excluded.imported_at,
+--   card_count  = excluded.card_count,
+--   card_ids    = excluded.card_ids;
+
+-- today_events 例:
+-- insert into today_events (date, events, user_id)
+-- values ('2026-05-16', '[]'::jsonb, :user_id)
+-- on conflict (date) do update set events = excluded.events;
+
+-- ---------------------------------------------------------------------
+-- TODO（次ターン）:
+--   - scripts/export_to_supabase_sql.ps1 を作る
+--       cards.json / imported_sources.json / today.json を読んで
+--       上記 INSERT 文を生成し、本ファイル末尾に追記する
+--   - もしくは Node スクリプトで supabase-js から直接 upsert する
+--     （その場合 SQL ファイルは不要になる）
+-- ---------------------------------------------------------------------
