@@ -1487,6 +1487,28 @@ function handleAuthSkip() {
   closeAuthModal();
 }
 
+async function handleVerifyOtp() {
+  const email = (el.authEmail && el.authEmail.value || '').trim();
+  const code = (el.authCode && el.authCode.value || '').trim();
+  if (!email) { showAuthFlash('メールアドレスを入力してください', 'warn'); return; }
+  if (!/^\d{6,8}$/.test(code)) { showAuthFlash('コードは6〜8桁の数字です', 'warn'); return; }
+  try {
+    if (el.btnAuthVerify) el.btnAuthVerify.disabled = true;
+    const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' });
+    if (error) {
+      showAuthFlash('コードが違うか期限切れです: ' + error.message, 'warn');
+    } else if (data && data.session) {
+      showAuthFlash('サインイン成功', 'ok');
+      // applySession は onAuthStateChange で呼ばれるので closeAuthModal だけ
+      setTimeout(() => closeAuthModal(), 600);
+    }
+  } catch (e) {
+    showAuthFlash('検証失敗: ' + (e && e.message || String(e)), 'warn');
+  } finally {
+    if (el.btnAuthVerify) el.btnAuthVerify.disabled = false;
+  }
+}
+
 async function handleSignOut() {
   try {
     await supabase.auth.signOut();
