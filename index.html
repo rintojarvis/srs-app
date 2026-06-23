@@ -16,14 +16,18 @@
   <dialog id="auth-modal" class="auth-modal">
     <form method="dialog" class="auth-form">
       <h2>サインイン</h2>
-      <p class="caption">Supabase でサインインするとデータが iPhone / iPad / PC で同期されます。メールアドレスにマジックリンクが届きます。</p>
+      <p class="caption">メールを送ると <strong>8桁のコード</strong> が届きます。下の欄に入力してください。<br>(iPhone をホーム画面アプリで使っているならコード入力がおすすめ。Safari ならメールのリンクをタップしても OK)</p>
       <label class="auth-field">メールアドレス
         <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required>
+      </label>
+      <label class="auth-field" id="auth-code-field" style="display:none">8桁コード
+        <input type="text" inputmode="numeric" id="auth-code" placeholder="12345678" autocomplete="one-time-code" maxlength="8" pattern="[0-9]{8}">
       </label>
       <p id="auth-flash" class="mistake-flash hidden"></p>
       <menu class="auth-menu">
         <button type="button" id="btn-auth-skip" class="btn-foot">オフラインで使う</button>
-        <button type="button" id="btn-auth-send" class="btn-primary btn-big">Magic Link を送信</button>
+        <button type="button" id="btn-auth-send" class="btn-primary btn-big">コードを送信</button>
+        <button type="button" id="btn-auth-verify" class="btn-primary btn-big" style="display:none">サインイン</button>
       </menu>
     </form>
   </dialog>
