@@ -1469,7 +1469,12 @@ async function handleSendMagicLink() {
     if (error) {
       showAuthFlash('送信失敗: ' + error.message, 'warn');
     } else {
-      showAuthFlash('メールを確認してリンクをクリックしてください。', 'ok');
+      showAuthFlash('メールが届いたら 8桁コードをここに入力するか、メール内のリンクをタップ。', 'ok');
+      // コード入力欄を露出してフォーカスを当てる(PWA mode で localStorage 分離問題を回避)
+      if (el.authCodeField) el.authCodeField.style.display = '';
+      if (el.btnAuthVerify) el.btnAuthVerify.style.display = '';
+      if (el.btnAuthSend) el.btnAuthSend.textContent = '別アドレスで再送';
+      if (el.authCode) setTimeout(() => el.authCode.focus(), 200);
     }
   } catch (e) {
     showAuthFlash('送信失敗: ' + (e && e.message || String(e)), 'warn');
