@@ -1634,7 +1634,11 @@ function attachEvents() {
   // Auth UI
   if (el.btnAuthSend) el.btnAuthSend.addEventListener('click', handleSendMagicLink);
   if (el.btnAuthSkip) el.btnAuthSkip.addEventListener('click', handleAuthSkip);
+  if (el.btnAuthVerify) el.btnAuthVerify.addEventListener('click', handleVerifyOtp);
   if (el.btnSignOut) el.btnSignOut.addEventListener('click', handleSignOut);
+  if (el.authCode) el.authCode.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); handleVerifyOtp(); }
+  });
   if (el.btnExportUserid) el.btnExportUserid.addEventListener('click', handleExportUserId);
 
   // オンライン復帰時に未送信を flush、オフラインで状態更新
