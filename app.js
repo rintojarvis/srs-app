@@ -1455,9 +1455,13 @@ async function handleSendMagicLink() {
   }
   try {
     if (el.btnAuthSend) el.btnAuthSend.disabled = true;
-    const { error } = await supabase.auth.signInWithOtp({
+    // Magic Link は必ず canonical URL に戻す (Vercel の deployment-specific URL や
+     // www あり/なし違いで別オリジン扱いになり localStorage が共有されない問題の回避)。
+     const CANONICAL_ORIGIN = 'https://srs-app-murex.vercel.app';
+     const redirect = CANONICAL_ORIGIN + window.location.pathname + window.location.search;
+     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.href }
+      options: { emailRedirectTo: redirect }
     });
     if (error) {
       showAuthFlash('送信失敗: ' + error.message, 'warn');
