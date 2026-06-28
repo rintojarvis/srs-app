@@ -13,7 +13,8 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
 </head>
 <body>
-  <dialog id="auth-modal" class="auth-modal">
+  <!-- rinto 個人専用化により認証 UI は非表示。固定 user_id で動作 (Supabase RLS で anon ポリシー付与済み)。 -->
+  <dialog id="auth-modal" class="auth-modal" hidden style="display:none">
     <form method="dialog" class="auth-form">
       <h2>サインイン</h2>
       <p class="caption">メールを送ると <strong>8桁のコード</strong> が届きます。下の欄に入力してください。<br>(iPhone をホーム画面アプリで使っているならコード入力がおすすめ。Safari ならメールのリンクをタップしても OK)</p>
