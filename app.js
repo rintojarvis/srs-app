@@ -1569,26 +1569,24 @@ async function applySession(session) {
   }
 }
 
+// rinto 個人専用 PWA - サインイン UI を廃止し、固定 user_id で起動する。
+// Supabase 側で anon role に user_id=RINTO_USER_ID 行の R/W ポリシーを付与済み。
+// URL を非公開にすることで擬似的なアクセス制御とする（カードは法学メモなので実害低）。
+const RINTO_USER_ID = 'beee6f1e-d4d9-4e0c-a5b4-89f2e4011317';
+
 async function initAuth() {
-  // URL フラグメントにマジックリンクトークンが含まれていれば取り込む
-  // （supabase-js v2 は detectSessionInUrl: true で自動処理する）
-  let session = null;
+  // 固定 user_id で動かす（サインイン不要）
+  state.sync.user_id = RINTO_USER_ID;
+  state.sync.user_email = 'rinto0210@gmail.com';
+  saveState();
+  renderAuthStatus();
+  // 初回 pull + Realtime 購読 + キュー flush
   try {
-    const { data } = await supabase.auth.getSession();
-    session = data && data.session ? data.session : null;
+    await pull();
+    subscribeRealtime();
+    await flushPushes();
   } catch (e) {
-    console.warn('getSession failed:', e);
-  }
-
-  // 認証状態の変化を購読
-  supabase.auth.onAuthStateChange((_event, sess) => {
-    applySession(sess).catch(e => console.warn('applySession error:', e));
-  });
-
-  if (session) {
-    await applySession(session);
-  } else {
-    openAuthModal();
+    console.warn('initAuth flow error:', e);
   }
 }
 
