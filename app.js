@@ -764,10 +764,26 @@ let todayClassEvents = []; // [{ summary, start, detected_subject }]
 
 async function loadTodayCalendarEvents() {
   try {
-    const res = await fetch('./today.json', { cache: 'no-store' });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const events = Array.isArray(data && data.events) ? data.events : [];
+    const today = todayDateStr();
+    // Supabase から直接 query (旧: ./today.json は廃止、Supabase が source of truth)
+    let events = [];
+    try {
+      const { data, error } = await supabase
+        .from('today_events')
+        .select('events')
+        .eq('date', today)
+        .maybeSingle();
+      if (!error && data && Array.isArray(data.events)) {
+        events = data.events;
+      } else {
+        // Supabase に行がなければ state cache を fallback
+        const row = (state.today_events || []).find(t => t.date === today);
+        events = row && Array.isArray(row.events) ? row.events : [];
+      }
+    } catch (e) {
+      const row = (state.today_events || []).find(t => t.date === today);
+      events = row && Array.isArray(row.events) ? row.events : [];
+    }
     // 授業っぽいものだけフィルタ
     const classes = [];
     for (const ev of events) {
